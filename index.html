@@ -32,7 +32,7 @@
   }
 
   /* ---------- 主窗口 ---------- */
-  #app{height:100vh;display:grid;grid-template-rows:34px 1fr 18px;}
+  #app{height:100vh;display:grid;grid-template-rows:34px 26px 1fr 18px;}
 
   #toolbar{
     display:flex;align-items:center;gap:2px;
@@ -251,6 +251,30 @@
   .dlg-foot button:hover{background:#565656;}
   .dlg-foot button.primary{border-color:#c8c8c8;}
 
+  /* ---------- ROI 信息编辑栏 ---------- */
+  #roiInfo{
+    display:flex;align-items:center;gap:5px;
+    padding:0 8px;background:#4a4a4a;
+    border-bottom:1px solid var(--line);
+    font-size:11px;color:#d8d8d8;white-space:nowrap;overflow:hidden;
+  }
+  #roiInfo .ri-label{color:#b9b9b9;flex:0 0 auto;}
+  #roiInfo .ri-sep{width:1px;height:15px;background:#6a6a6a;margin:0 5px;flex:0 0 auto;}
+  #roiInfo .ri-unit{color:#cfcfcf;flex:0 0 auto;}
+  #roiInfo input{
+    width:80px;height:20px;flex:0 0 auto;
+    background:var(--field);color:#f2f2f2;
+    border:1px solid var(--field-border);border-radius:0;
+    font-family:inherit;font-size:11px;text-align:right;
+    padding:0 4px;outline:none;
+    -moz-appearance:textfield;appearance:textfield;
+  }
+  #roiInfo input:focus{border-color:#c9b13e;background:#525252;}
+  #roiInfo input::-webkit-outer-spin-button,
+  #roiInfo input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  #roiInfo input:disabled{color:#8a8a8a;background:#454545;}
+  #roiInfo .ri-tip{margin-left:auto;color:#9c9c9c;font-size:10px;}
+
   .hidden{display:none !important;}
 </style>
 </head>
@@ -304,9 +328,23 @@
     <span id="indexLabel"># 1</span>
   </div>
 
+  <div id="roiInfo" title="直接输入 ROI 参数（回车或失焦生效），图像坐标单位 px">
+    <span class="ri-label">位置</span>
+    <span class="ri-label">X</span><input id="riX" type="number" step="0.1" value="0.000" spellcheck="false" title="ROI 左上角 X（图像 px）">
+    <span class="ri-label">Y</span><input id="riY" type="number" step="0.1" value="0.000" spellcheck="false" title="ROI 左上角 Y（图像 px）">
+    <span class="ri-sep"></span>
+    <span class="ri-label">大小</span>
+    <span class="ri-label">宽</span><input id="riW" type="number" step="0.1" value="0.000" spellcheck="false" title="ROI 宽度（图像 px）">
+    <span class="ri-label">高</span><input id="riH" type="number" step="0.1" value="0.000" spellcheck="false" title="ROI 高度（图像 px）">
+    <span class="ri-sep"></span>
+    <span class="ri-label">旋转</span><input id="riA" type="number" step="0.1" value="0.000" spellcheck="false" title="ROI 旋转角度（°）">
+    <span class="ri-unit">°</span>
+    <span class="ri-tip">回车或失焦应用</span>
+  </div>
+
   <div id="stage">
     <canvas id="cv"></canvas>
-    <div id="hint">滚轮：以光标为锚点缩放 · 拖拽空白：平移 · 双击区域 / F2：属性页</div>
+    <div id="hint">滚轮：以光标为锚点缩放 · 拖拽空白：平移 · 拖底部 ↻：旋转 · 双击区域 / F2：属性页</div>
   </div>
 
   <div id="statusbar">
@@ -587,8 +625,9 @@
 
     if (!isSel) { ctx.restore(); return; }
 
-    // 8 个句柄：品红细框 + 白色内芯（与截图一致）
+    // 缩放句柄：品红细框 + 白色内芯（与截图一致）；底边中点单独画成旋转柄
     handlePointsCanvas(r).forEach(h => {
+      if (h.id === "s") return;
       const s = 4;
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(h.x - s, h.y - s, s*2, s*2);
@@ -596,6 +635,12 @@
       ctx.lineWidth = 2;
       ctx.strokeRect(h.x - s + 1, h.y - s + 1, s*2 - 2, s*2 - 2);
     });
+
+    // 底边中点：圆形旋转柄（品红 ↻ 字形），按住拖动可旋转区域
+    if (state.allowRotate){
+      const rh = handlePointsCanvas(r).find(h => h.id === "s");
+      if (rh) drawRotateHandle(rh);
+    }
 
     // 坐标轴：绘制在句柄之上（截图里 x/y 箭头遮住了 n/w 句柄）
     if (state.showAxes){
@@ -624,8 +669,34 @@
     ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
   }
 
+  // 底边中点的旋转柄：品红圆环 + 箭头（↻ 字形，缺口在右侧）
+  function drawRotateHandle(p){
+    const rad = 6.2;
+    ctx.save();
+    ctx.strokeStyle = COLORS.handle;
+    ctx.fillStyle = COLORS.handle;
+    ctx.lineWidth = 2;
+    const a0 = deg2rad(55), a1 = deg2rad(-55);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, rad, a1, a0, true);
+    ctx.stroke();
+
+    // 箭头位于缺口下端，朝右（与截图一致）
+    const tx = p.x + rad*Math.cos(a0), ty = p.y + rad*Math.sin(a0);
+    const dir = deg2rad(-10);
+    const L = 5.5;
+    ctx.beginPath();
+    ctx.moveTo(tx + L*Math.cos(dir), ty + L*Math.sin(dir));
+    ctx.lineTo(tx - L*0.7*Math.cos(dir - 0.6), ty - L*0.7*Math.sin(dir - 0.6));
+    ctx.lineTo(tx - L*0.7*Math.cos(dir + 0.6), ty - L*0.7*Math.sin(dir + 0.6));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   // ---------- 状态栏 ----------
   function updateStatus(){
+    syncRoiInfo();
     const r = sel();
     const el = document.getElementById("statusLeft");
     if (!r){ el.textContent = "位置=— 大小=— 旋转=— 曲线=0.0°"; return; }
@@ -666,6 +737,17 @@
 
     // 1) 句柄（仅选中区域）
     if (r){
+      // 底边中点：旋转柄（阻尼旋转）
+      if (state.allowRotate){
+        const rh = handlePointsCanvas(r).find(h => h.id === "s");
+        if (rh && Math.hypot(rh.x-cx, rh.y-cy) <= 9){
+          const p0 = canvasToImage(cx, cy);
+          state.drag = { mode:"rotate", damp:true,
+                         lastAng: Math.atan2(p0.y - r.y, p0.x - r.x) };
+          cv.style.cursor = "grabbing";
+          return;
+        }
+      }
       if (state.allowRotate && e.altKey){
         for (const h of handlePointsCanvas(r)){
           if (Math.hypot(h.x-cx, h.y-cy) <= 7 && (h.id === "ne" || h.id === "nw" || h.id === "se" || h.id === "sw")){
@@ -677,6 +759,7 @@
       }
       if (state.allowSize){
         for (const h of handlePointsCanvas(r)){
+          if (h.id === "s") continue;
           if (Math.hypot(h.x-cx, h.y-cy) <= 7){
             state.drag = { mode:"resize", handle:h.id,
                            start:{x:r.x,y:r.y,w:r.w,h:r.h,angle:r.angle},
@@ -723,10 +806,21 @@
         r.x = clamp(d.start.x + (img.x - d.startImg.x), -1e5, 1e5);
         r.y = clamp(d.start.y + (img.y - d.startImg.y), -1e5, 1e5);
       } else if (d.mode === "rotate" && r){
-        const a0 = Math.atan2(d.startImg.y - r.y, d.startImg.x - r.x);
         const a1 = Math.atan2(img.y - r.y, img.x - r.x);
-        r.angle = d.startAngle + rad2deg(a1 - a0);
-        normalizeAngle(r);
+        if (d.damp){
+          // 阻尼旋转：按相对上一次指针角度的增量累加，并限制单次幅度，防止转得过快
+          let da = rad2deg(a1 - d.lastAng);
+          while (da > 180) da -= 360;
+          while (da < -180) da += 360;
+          da = clamp(da, -8, 8);
+          r.angle += da * 0.35;
+          d.lastAng = a1;
+          normalizeAngle(r);
+        } else {
+          const a0 = Math.atan2(d.startImg.y - r.y, d.startImg.x - r.x);
+          r.angle = d.startAngle + rad2deg(a1 - a0);
+          normalizeAngle(r);
+        }
       } else if (d.mode === "resize" && r){
         resizeByHandle(d, img);
       }
@@ -737,11 +831,14 @@
     // 光标反馈
     let cur = "default";
     if (r){
-      let onHandle = false;
+      let onHandle = false, onRotate = false;
       for (const h of handlePointsCanvas(r)){
-        if (Math.hypot(h.x-cx, h.y-cy) <= 7){ onHandle = true; break; }
+        if (Math.hypot(h.x-cx, h.y-cy) <= 7){
+          if (h.id === "s") onRotate = true; else onHandle = true;
+        }
       }
-      if (onHandle && state.allowSize) cur = "nwse-resize";
+      if (onRotate && state.allowRotate) cur = "grab";
+      else if (onHandle && state.allowSize) cur = "nwse-resize";
       else if (pointInRegion(r, img.x, img.y) && state.allowMove) cur = "move";
     }
     cv.style.cursor = cur;
@@ -751,13 +848,14 @@
   cv.addEventListener("pointerup", e => {
     if (state.drag){
       state.drag = null;
+      cv.style.cursor = "default";
       try { cv.releasePointerCapture(e.pointerId); } catch(_){}
       syncToolbar();
       draw();
     }
   });
 
-  cv.addEventListener("pointercancel", () => { state.drag = null; });
+  cv.addEventListener("pointercancel", () => { state.drag = null; cv.style.cursor = "default"; });
 
   cv.addEventListener("dblclick", () => openDialog());
 
@@ -814,6 +912,46 @@
       : "ROI 编辑器 Mock · 无区域";
     document.getElementById("indexLabel").textContent = `# ${Math.min(state.selected+1, state.regions.length)}`;
   }
+
+  // ---------- ROI 信息编辑栏（直接输入参数，精度高于鼠标拖动） ----------
+  const riFields = ["riX","riY","riW","riH","riA"].map(id => document.getElementById(id));
+
+  function syncRoiInfo(force){
+    const r = sel();
+    riFields.forEach(el => { el.disabled = !r; });
+    if (!r) return;
+    // 正在输入时不打断用户
+    if (!force && riFields.indexOf(document.activeElement) >= 0) return;
+    riFields[0].value = fmt3(r.x - r.w/2);
+    riFields[1].value = fmt3(r.y - r.h/2);
+    riFields[2].value = fmt3(r.w);
+    riFields[3].value = fmt3(r.h);
+    riFields[4].value = fmt3(r.angle);
+  }
+
+  function applyRoiInfo(){
+    const r = sel();
+    if (!r) return;
+    const left = parseFloat(riFields[0].value);
+    const top  = parseFloat(riFields[1].value);
+    const w    = parseFloat(riFields[2].value);
+    const h    = parseFloat(riFields[3].value);
+    const a    = parseFloat(riFields[4].value);
+    if (Number.isFinite(w) && w >= 1) r.w = w;
+    if (Number.isFinite(h) && h >= 1) r.h = h;
+    if (Number.isFinite(left)) r.x = left + r.w/2;
+    if (Number.isFinite(top))  r.y = top + r.h/2;
+    if (Number.isFinite(a)){ r.angle = a; normalizeAngle(r); }
+    syncToolbar(); draw(); syncRoiInfo(true);
+  }
+
+  riFields.forEach(el => {
+    el.addEventListener("change", applyRoiInfo);
+    el.addEventListener("keydown", e => {
+      if (e.key === "Enter"){ e.preventDefault(); applyRoiInfo(); el.blur(); }
+    });
+  });
+  syncRoiInfo(true);
 
   document.getElementById("roiName").addEventListener("change", e => {
     const r = sel();
