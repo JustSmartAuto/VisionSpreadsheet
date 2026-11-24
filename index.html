@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EditRegion Mock - ROI 区域编辑器</title>
+<style>
+  :root{
+    --chrome:#404040;
+    --chrome-hi:#4a4a4a;
+    --canvas:#565656;
+    --line:#2b2b2b;
+    --field:#4a4a4a;
+    --field-border:#8a8a8a;
+    --text:#f0f0f0;
+    --muted:#b9b9b9;
+    --roi:#ff1e1e;
+    --handle:#ff00ff;
+    --dlg-bg:#666666;
+    --dlg-title:#4a4a4a;
+    --focus:#c9b13e;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;overflow:hidden;
+    background:var(--chrome);
+    color:var(--text);
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    font-size:12px;
+    user-select:none;
+  }
+
+  /* ---------- 主窗口 ---------- */
+  #app{height:100vh;display:grid;grid-template-rows:34px 1fr 18px;}
+
+  #toolbar{
+    display:flex;align-items:center;gap:2px;
+    padding:0 4px;background:var(--chrome);
+    border-bottom:1px solid var(--line);
+    white-space:nowrap;overflow:hidden;
+  }
+  .tb-btn{
+    width:22px;height:24px;padding:2px;
+    display:inline-flex;align-items:center;justify-content:center;
+    background:transparent;border:1px solid transparent;border-radius:2px;
+    color:#dcdcdc;cursor:pointer;flex:0 0 auto;
+  }
+  .tb-btn:hover{background:#565656;border-color:#6a6a6a;}
+  .tb-btn:active{background:#303030;}
+  .tb-btn svg{width:16px;height:16px;display:block;}
+  .tb-sep{width:1px;height:20px;background:#6a6a6a;margin:0 4px;flex:0 0 auto;}
+  .tb-spacer{flex:0 1 10px;}
+
+  #comboC{
+    height:23px;width:118px;margin-left:4px;
+    background:var(--field);color:var(--text);
+    border:1px solid var(--field-border);border-radius:0;
+    font-family:inherit;font-size:12px;padding:0 4px;outline:none;
+    flex:0 0 auto;
+  }
+  #comboC option{background:#4a4a4a;}
+  .eq{color:#e6e6e6;margin:0 5px;font-size:13px;flex:0 0 auto;}
+  #roiName{
+    height:23px;width:150px;flex:0 0 auto;
+    background:var(--field);color:#7fd4ff;
+    border:1px solid var(--field-border);border-radius:0;
+    font-family:inherit;font-size:12px;padding:0 5px;outline:none;
+  }
+  #note{
+    height:23px;flex:1 1 auto;min-width:80px;margin-left:0;
+    background:var(--field);color:#d8d8d8;
+    border:1px solid var(--field-border);border-left:none;border-radius:0;
+    font-family:inherit;font-size:11px;padding:0 6px;outline:none;
+  }
+  .tb-check{
+    width:22px;height:24px;margin-left:6px;
+    display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+    cursor:pointer;
+  }
+  .box{
+    width:13px;height:13px;border:1px solid #9a9a9a;background:#3f3f3f;
+    display:inline-flex;align-items:center;justify-content:center;
+    font-size:10px;line-height:1;color:#fff;
+  }
+  .box.on{background:#e6e6e6;border-color:#c8c8c8;}
+  .box.on::after{content:"✓";color:#2a2a2a;font-weight:700;}
+  #indexLabel{color:#e8e8e8;margin-left:10px;flex:0 0 auto;font-size:11px;}
+
+  #stage{position:relative;overflow:hidden;background:var(--canvas);cursor:default;}
+  #cv{display:block;width:100%;height:100%;}
+
+  #hint{
+    position:absolute;right:10px;bottom:8px;
+    color:#e9e9e9;background:rgba(0,0,0,.28);
+    border:1px solid rgba(255,255,255,.12);
+    padding:2px 6px;font-size:10px;pointer-events:none;
+    opacity:.9;
+  }
+
+  #statusbar{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:0 8px;background:var(--chrome);color:#ececec;
+    font-size:10px;border-top:1px solid var(--line);
+    white-space:nowrap;overflow:hidden;
+  }
+  #statusRight{color:#c9c9c9;overflow:hidden;text-overflow:ellipsis;}
+
+  /* ---------- 属性页 ---------- */
+  #dialogWrap{
+    position:fixed;inset:0;display:none;z-index:20;
+    background:rgba(0,0,0,.10);
+  }
+  #dialogWrap.open{display:block;}
+  #dialog{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:421px;height:757px;max-height:96vh;
+    background:var(--dlg-bg);color:var(--text);
+    border:1px solid #2f2f2f;
+    box-shadow:0 10px 34px rgba(0,0,0,.55);
+    display:flex;flex-direction:column;
+    font-size:12px;
+  }
+  .dlg-title{
+    height:30px;flex:0 0 auto;background:var(--dlg-title);
+    display:flex;align-items:center;padding-left:9px;
+    font-size:12px;color:#ededed;
+  }
+  .dlg-title .title-text{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .win-btns{display:flex;flex:0 0 auto;}
+  .win-btn{
+    width:38px;height:30px;display:flex;align-items:center;justify-content:center;
+    color:#e6e6e6;cursor:pointer;font-size:12px;
+  }
+  .win-btn:hover{background:#5a5a5a;}
+  .win-btn.close:hover{background:#c0392b;}
+
+  .dlg-menu{
+    height:23px;flex:0 0 auto;background:var(--chrome);
+    display:flex;align-items:center;gap:2px;padding-left:7px;
+  }
+  .menu-item{padding:2px 6px;cursor:default;color:#e8e8e8;}
+  .menu-item:hover{background:#5a5a5a;}
+  .menu-item.active{border:1px solid #a0a0a0;padding:1px 5px;background:#555;}
+
+  .dlg-tools{
+    height:30px;flex:0 0 auto;display:flex;align-items:center;gap:3px;
+    padding:0 6px;background:var(--dlg-bg);border-bottom:1px solid #5a5a5a;
+  }
+  .dlg-tools .tb-btn{width:24px;height:24px;}
+
+  .dlg-body{
+    padding:8px 14px 4px;overflow-y:auto;flex:1 1 auto;
+    scrollbar-width:thin;scrollbar-color:#5a5a5a #4a4a4a;
+  }
+  .row{display:flex;align-items:center;min-height:31px;margin:0;}
+  .row>.lbl{width:88px;flex:0 0 auto;color:#e6e6e6;}
+  .row>.lbl.right{text-align:right;padding-right:8px;}
+  .field{
+    height:24px;background:var(--field);color:#f2f2f2;
+    border:1px solid var(--field-border);border-radius:0;
+    font-family:inherit;font-size:12px;padding:0 5px;outline:none;
+    flex:1 1 auto;min-width:0;
+  }
+  .field:focus{border-color:#bdbdbd;}
+  .ro{background:#4a4a4a;color:#dcdcdc;}
+  .field.var{color:#4fa3ff;}
+  .num-wrap{position:relative;flex:0 0 205px;width:205px;}
+  .num-field{
+    width:100%;height:24px;background:var(--field);color:#f2f2f2;
+    border:1px solid var(--field-border);border-radius:0;
+    font-family:inherit;font-size:12px;text-align:right;
+    padding:0 20px 0 6px;outline:none;
+    -moz-appearance:textfield;appearance:textfield;
+  }
+  .num-field::-webkit-outer-spin-button,
+  .num-field::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .spin-btns{
+    position:absolute;right:2px;top:3px;bottom:3px;width:15px;
+    display:flex;flex-direction:column;
+  }
+  .spin-btns button{
+    flex:1;width:15px;padding:0;line-height:1;
+    background:#8c8c8c;color:#202020;border:1px solid #6a6a6a;border-radius:0;
+    font-size:6px;cursor:pointer;
+  }
+  .spin-btns button:hover{background:#a5a5a5;}
+  .eq-mark{width:12px;flex:0 0 auto;color:#d8d8d8;margin-left:5px;}
+  .var-icon{width:12px;height:12px;border:1px solid #d8d8d8;flex:0 0 auto;display:inline-block;}
+
+  .row.group{gap:6px;margin-top:6px;}
+  .group-icon{width:14px;height:14px;border:1px solid #d8d8d8;position:relative;}
+  .group-icon::before,.group-icon::after{
+    content:"";position:absolute;background:#d8d8d8;
+  }
+  .group-icon::before{left:1px;right:1px;top:3px;height:1px;}
+  .group-icon::after{top:1px;bottom:1px;left:3px;width:1px;}
+  .group-name{font-weight:600;color:#f0f0f0;}
+  .group-val{color:#cfcfcf;margin-left:16px;font-size:11px;}
+
+  .chk-row{display:flex;align-items:center;min-height:31px;margin:0;}
+  .chk-row .lbl{width:88px;flex:0 0 auto;color:#e6e6e6;}
+  .chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+
+  .field-name{width:205px;flex:0 0 205px;}
+
+  .row.focus-row{background:linear-gradient(to right,#8c8c8c 0%,#7a7a7a 60%,#4a4a4a 100%);}
+  .row.focus-row>.lbl{
+    color:#fff200;font-weight:700;
+    display:flex;align-items:center;width:88px;flex:0 0 88px;
+  }
+
+  .combo{position:relative;flex:0 0 205px;width:205px;}
+  .combo>button{
+    width:100%;height:26px;text-align:left;padding:0 22px 0 6px;
+    background:#666;color:#f2f2f2;border:1px solid #9a9a9a;
+    border-radius:0;font-family:inherit;font-size:12px;position:relative;cursor:pointer;
+  }
+  .combo>button::after{
+    content:"";position:absolute;right:6px;top:9px;
+    border:4px solid transparent;border-top-color:#e0e0e0;
+  }
+  .combo-list{
+    position:absolute;left:0;right:0;top:26px;display:none;z-index:5;
+    background:#8c8c8c;border:1px solid #b7b7b7;border-top:none;
+  }
+  .combo-list div{
+    padding:5px 6px;color:#f2f2f2;cursor:pointer;
+  }
+  .combo-list div:hover{background:#6a6a6a;}
+  .combo-list div.sel{background:#4a4a4a;}
+  .combo.open .combo-list{display:block;}
+  .combo-val{width:6px;flex:0 0 auto;}
+  .combo-eq{width:26px;flex:0 0 auto;color:#fff200;text-align:center;}
+
+  .dlg-help{
+    flex:0 0 auto;border-top:1px dotted #dcdcdc;margin:0;
+    padding:9px 14px;color:#efefef;background:var(--dlg-bg);min-height:100px;
+  }
+  .dlg-help .h{font-weight:700;margin-bottom:4px;}
+  .dlg-help .t{font-size:11px;color:#eaeaea;}
+
+  .dlg-foot{
+    flex:0 0 auto;display:flex;justify-content:flex-end;gap:9px;
+    padding:6px 12px;background:#565656;height:40px;align-items:center;
+  }
+  .dlg-foot button{
+    min-width:76px;height:27px;background:#4a4a4a;color:#ededed;
+    border:1px solid #9a9a9a;border-radius:0;font-family:inherit;font-size:12px;cursor:pointer;
+  }
+  .dlg-foot button:hover{background:#565656;}
+  .dlg-foot button.primary{border-color:#c8c8c8;}
+
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <button class="tb-btn" title="参数（示例）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M4 5.5h5M4 8h6M4 10.5h3"/><path d="M11 9.5v4M10 10.5h2M9.5 12c0-1 .7-1.5 1.5-1.5s1.5.5 1.5 1.5"/></svg>
+    </button>
+    <button class="tb-btn" title="网格（示例）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M1.5 5.5h13M1.5 9h13M1.5 12h13M5.5 1.5v13M9.5 1.5v13M12.5 1.5v13"/></svg>
+    </button>
+    <button class="tb-btn" title="公式（示例）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M9.8 2.5c-3.4-.9-4.6 1.4-4.6 3.1 0 2.4.5 3.3-1.5 3.4 2 .1 1.5 1 1.5 3.4 0 1.7 1.2 4 4.6 3.1"/><path d="M9 5.6h3.4M9 10.4h3.4"/></svg>
+    </button>
+    <button class="tb-btn" id="btnZoomIn" title="放大（滚轮亦可缩放）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="6.6" cy="6.6" r="4.4"/><path d="M10 10l3.7 3.7M4.7 6.6h3.8M6.6 4.7v3.8"/></svg>
+    </button>
+    <button class="tb-btn" title="标定（示例）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="10" height="10" stroke="#ff3b30"/><path d="M1 5V1h4M11 1h4v4M15 11v4h-4M5 15H1v-4"/><rect x="6.4" y="6.4" width="3.2" height="3.2"/></svg>
+    </button>
+    <span class="tb-sep"></span>
+    <button class="tb-btn" title="步进（示例）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 13V3h5v8h5v2z"/><path d="M10.5 5.5h3"/></svg>
+    </button>
+    <button class="tb-btn" title="批注（示例）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.5 3h11v7.5h-6L4 13v-2.5H2.5z"/></svg>
+    </button>
+    <button class="tb-btn" title="脚本（示例）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5.5 3.5L2 8l3.5 4.5M10.5 3.5L14 8l-3.5 4.5"/></svg>
+    </button>
+    <span class="tb-sep"></span>
+
+    <button class="tb-btn" id="btnOverlay" title="显示/隐藏 ROI 图形">
+      <svg viewBox="0 0 16 16" fill="none" stroke="#38d66a" stroke-width="1.3"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M4 8.3l2.4 2.4L11.8 5"/></svg>
+    </button>
+    <button class="tb-btn" id="btnDelete" title="删除当前区域（Delete）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="#ff3b30" stroke-width="1.6"/></svg>
+    </button>
+
+    <select id="comboC" title="边缘/参数选择（示例）">
+      <option>C16</option><option>C32</option><option>C64</option><option>C128</option>
+    </select>
+    <span class="eq">=</span>
+    <input id="roiName" value="EditRegion1" spellcheck="false" title="当前区域名称">
+    <input id="note" value="ROI 编辑器 Mock · ROI 以图像坐标存储（px）" spellcheck="false" title="备注 / 参数说明">
+    <label class="tb-check" title="显示坐标轴">
+      <input type="checkbox" id="chkAxis" checked class="hidden">
+      <span class="box on" id="boxAxis"></span>
+    </label>
+    <span id="indexLabel"># 1</span>
+  </div>
+
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hint">滚轮：以光标为锚点缩放 · 拖拽空白：平移 · 双击区域 / F2：属性页</div>
+  </div>
+
+  <div id="statusbar">
+    <span id="statusLeft">位置=0.000,0.000 大小=0×0 旋转=0.0° 曲线=0.0°</span>
+    <span id="statusRight"></span>
+  </div>
+</div>
+
+<div id="dialogWrap">
+  <div id="dialog" role="dialog" aria-modal="true" aria-label="属性页">
+    <div class="dlg-title" id="dlgTitle">
+      <span class="title-text">Inspection - 属性页 - EditRegion</span>
+      <div class="win-btns">
+        <div class="win-btn" title="最小化（示例）">—</div>
+        <div class="win-btn" title="最大化（示例）">☐</div>
+        <div class="win-btn close" id="dlgClose" title="关闭">✕</div>
+      </div>
+    </div>
+
+    <div class="dlg-menu">
+      <div class="menu-item active">编辑</div>
+      <div class="menu-item">插入</div>
+      <div class="menu-item">帮助</div>
+    </div>
+
+    <div class="dlg-tools">
+      <button class="tb-btn" title="参数（示例）">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M4 5.5h5M4 8h6M4 10.5h3"/></svg>
+      </button>
+      <button class="tb-btn" title="网格（示例）">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M1.5 5.5h13M5.5 1.5v13M9.5 1.5v13"/></svg>
+      </button>
+      <button class="tb-btn" title="放大（示例）">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="6.6" cy="6.6" r="4.2"/><path d="M10 10l3.7 3.7"/></svg>
+      </button>
+      <button class="tb-btn" title="打印（示例）">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 5.5h12V12H2z"/><path d="M4 5.5V2.5h8v3M4 12v1.5h8V12"/></svg>
+      </button>
+      <button class="tb-btn" title="可视化（示例）">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 13V3h3v10M7 13V3h3v10M12 13V3h3v10"/></svg>
+      </button>
+      <button class="tb-btn" title="帮助（示例）">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="8" cy="8" r="6"/><path d="M6.2 6.2c0-1 .8-1.7 1.8-1.7s1.8.7 1.8 1.7c0 1.4-1.8 1.5-1.8 3"/><circle cx="8" cy="12" r=".7" fill="currentColor"/></svg>
+      </button>
+    </div>
+
+    <div class="dlg-body">
+      <div class="row">
+        <span class="lbl">图像</span>
+        <input class="field ro var" value="$A$0" readonly title="输入图像变量" style="flex:0 0 205px;width:205px;">
+        <span class="eq-mark">=</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;color:#e6e6e6;flex:0 0 auto;">
+          <span class="var-icon"></span>Image
+        </span>
+      </div>
+
+      <div class="row group" style="align-items:flex-start;flex-direction:column;gap:2px;min-height:44px;">
+        <span style="display:inline-flex;align-items:center;gap:5px;">
+          <span class="group-icon"></span><span class="group-name">定位特征</span>
+        </span>
+        <span class="group-val" style="margin-left:88px;">(0,0,0)</span>
+      </div>
+
+      <div class="row">
+        <span class="lbl right">X</span>
+        <div class="num-wrap">
+          <input class="num-field" id="inX" type="number" step="1" value="0">
+          <div class="spin-btns"><button data-spin="inX:1">▲</button><button data-spin="inX:-1">▼</button></div>
+        </div>
+      </div>
+      <div class="row">
+        <span class="lbl right">Y</span>
+        <div class="num-wrap">
+          <input class="num-field" id="inY" type="number" step="1" value="0">
+          <div class="spin-btns"><button data-spin="inY:1">▲</button><button data-spin="inY:-1">▼</button></div>
+        </div>
+      </div>
+      <div class="row">
+        <span class="lbl right">角度</span>
+        <div class="num-wrap">
+          <input class="num-field" id="inA" type="number" step="0.1" value="0">
+          <div class="spin-btns"><button data-spin="inA:1">▲</button><button data-spin="inA:-1">▼</button></div>
+        </div>
+      </div>
+
+      <div class="chk-row"><span class="lbl">移动</span>
+        <label class="chk"><input type="checkbox" id="ckMove" checked class="hidden"><span class="box on" id="boxMove"></span></label>
+      </div>
+      <div class="chk-row"><span class="lbl">大小</span>
+        <label class="chk"><input type="checkbox" id="ckSize" checked class="hidden"><span class="box on" id="boxSize"></span></label>
+      </div>
+      <div class="chk-row"><span class="lbl">旋转</span>
+        <label class="chk"><input type="checkbox" id="ckRot" checked class="hidden"><span class="box on" id="boxRot"></span></label>
+      </div>
+      <div class="chk-row"><span class="lbl">弯曲</span>
+        <label class="chk"><input type="checkbox" id="ckCurve" checked class="hidden"><span class="box on" id="boxCurve"></span></label>
+      </div>
+
+      <div class="chk-row"><span class="lbl">名称</span>
+        <input class="field field-name" id="inName" value="" spellcheck="false" placeholder=" ">
+      </div>
+
+      <div class="row focus-row">
+        <span class="lbl">显示</span>
+        <div class="combo" id="comboDisplay">
+          <button type="button" id="displayBtn">仅输入图形</button>
+          <div class="combo-list">
+            <div data-v="hidden">全部隐藏</div>
+            <div data-v="input" class="sel">仅输入图形</div>
+          </div>
+        </div>
+        <span class="combo-val"></span>
+        <span class="combo-eq" id="displayEq">= 1</span>
+      </div>
+    </div>
+
+    <div class="dlg-help">
+      <div class="h">显示</div>
+      <div class="t">选择要重叠在图像上的图形类型。</div>
+    </div>
+
+    <div class="dlg-foot">
+      <button class="primary" id="dlgOk">确定(<u>O</u>)</button>
+      <button id="dlgCancel">取消(<u>C</u>)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const IMG_SRC = "../图像_0000_20261102055654.png";
+  const cv = document.getElementById("cv");
+  const stage = document.getElementById("stage");
+  const ctx = cv.getContext("2d");
+
+  // ---------- 状态（ROI 一律以图像坐标存储） ----------
+  const state = {
+    img: new Image(),
+    imgLoaded: false,
+    imgData: null,          // 原图像素缓存，用于 RGB 读数
+    fitScale: 1,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    dpr: window.devicePixelRatio || 1,
+    regions: [
+      // 截图 (1)：位置=1402.838 大小=866x822 旋转=0.0°（图像坐标，中心点存储）
+      { name: "EditRegion1", x: 1835.838, y: 1238, w: 866, h: 822, angle: 0 }
+    ],
+    selected: 0,
+    displayMode: "input",   // hidden | input
+    showAxes: true,
+    allowMove: true,
+    allowSize: true,
+    allowRotate: true,
+    allowCurve: true,
+    drag: null,
+    cursor: null
+  };
+  const COLORS = { roi: "#ff0000", handle: "#ff00ff", axisX: "#ff0000", axisY: "#ff00ff" };
+
+  function sel(){ return state.regions[state.selected] || null; }
+  function deg2rad(d){ return d * Math.PI / 180; }
+  function rad2deg(r){ return r * 180 / Math.PI; }
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  function fmt3(v){ return (Math.round(v*1000)/1000).toFixed(3); }
+
+  // ---------- 视图变换：图像 / 画布 / 面板 / 屏幕 ----------
+  function view(){
+    const cw = stage.clientWidth, ch = stage.clientHeight;
+    const iw = state.imgLoaded ? state.img.naturalWidth : 1024;
+    const ih = state.imgLoaded ? state.img.naturalHeight : 753;
+    const s = state.fitScale * state.zoom;
+    const w = iw * s, h = ih * s;
+    const ox = (cw - w) / 2 + state.panX;
+    const oy = (ch - h) / 2 + state.panY;
+    return { cw, ch, s, ox, oy, w, h, iw, ih };
+  }
+  function canvasToImage(cx, cy){
+    const v = view();
+    return { x: (cx - v.ox) / v.s, y: (cy - v.oy) / v.s };
+  }
+  function imageToCanvas(ix, iy){
+    const v = view();
+    return { x: v.ox + ix * v.s, y: v.oy + iy * v.s };
+  }
+  function localToImage(r, lx, ly){
+    const a = deg2rad(r.angle), c = Math.cos(a), s = Math.sin(a);
+    return { x: r.x + lx*c - ly*s, y: r.y + lx*s + ly*c };
+  }
+  function imageToLocal(r, ix, iy){
+    const a = deg2rad(r.angle), c = Math.cos(a), s = Math.sin(a);
+    const dx = ix - r.x, dy = iy - r.y;
+    return { x: dx*c + dy*s, y: -dx*s + dy*c };
+  }
+  function cornersImage(r){
+    const hw = r.w/2, hh = r.h/2;
+    return [
+      localToImage(r, -hw,-hh), localToImage(r,  hw,-hh),
+      localToImage(r,  hw, hh), localToImage(r, -hw, hh)
+    ];
+  }
+  function cornersCanvas(r){
+    return cornersImage(r).map(p => imageToCanvas(p.x, p.y));
+  }
+  const HANDLES = [
+    {id:"nw", lx:-1, ly:-1}, {id:"n", lx:0, ly:-1}, {id:"ne", lx:1, ly:-1},
+    {id:"e",  lx:1, ly:0},                          {id:"se", lx:1, ly:1},
+    {id:"s",  lx:0, ly:1},  {id:"sw", lx:-1, ly:1}, {id:"w", lx:-1, ly:0}
+  ];
+  function handlePointsCanvas(r){
+    return HANDLES.map(h => {
+      const p = localToImage(r, h.lx*r.w/2, h.ly*r.h/2);
+      const q = imageToCanvas(p.x, p.y);
+      return { id:h.id, x:q.x, y:q.y };
+    });
+  }
+  function pointInRegion(r, ix, iy){
+    const p = imageToLocal(r, ix, iy);
+    return Math.abs(p.x) <= r.w/2 && Math.abs(p.y) <= r.h/2;
+  }
+
+  // ---------- 绘制 ----------
+  function resizeCanvas(){
+    const cw = stage.clientWidth, ch = stage.clientHeight;
+    state.dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(cw * state.dpr);
+    cv.height = Math.round(ch * state.dpr);
+    if (state.imgLoaded){
+      const fit = Math.min(cw / state.img.naturalWidth, ch / state.img.naturalHeight);
+      if (!state.fitLocked) state.fitScale = fit;
+    }
+    draw();
+  }
+  function fitView(){
+    const cw = stage.clientWidth, ch = stage.clientHeight;
+    state.fitScale = Math.min(cw / state.img.naturalWidth, ch / state.img.naturalHeight);
+    state.zoom = 1; state.panX = 0; state.panY = 0;
+    state.fitLocked = true;
+    draw();
+  }
+
+  function draw(){
+    const v = view();
+    ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+    ctx.fillStyle = "#565656";
+    ctx.fillRect(0, 0, v.cw, v.ch);
+
+    if (state.imgLoaded){
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(state.img, v.ox, v.oy, v.w, v.h);
+    } else {
+      ctx.fillStyle = "#cfcfcf";
+      ctx.font = "13px 'Segoe UI','Microsoft YaHei',sans-serif";
+      ctx.fillText("正在加载测试图像 …", 20, 30);
+    }
+
+    if (state.displayMode === "hidden"){ updateStatus(); return; }
+
+    // ROI：先画非选中，再画选中
+    state.regions.forEach((r, i) => { if (i !== state.selected) drawRegion(r, false); });
+    const r = sel();
+    if (r) drawRegion(r, true);
+    updateStatus();
+  }
+
+  function drawRegion(r, isSel){
+    const pts = cornersCanvas(r);
+    ctx.save();
+    ctx.strokeStyle = COLORS.roi;
+    ctx.lineWidth = isSel ? 2 : 1.2;
+    ctx.beginPath();
+    pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.closePath();
+    ctx.stroke();
+
+    if (!isSel) { ctx.restore(); return; }
+
+    // 8 个句柄：品红细框 + 白色内芯（与截图一致）
+    handlePointsCanvas(r).forEach(h => {
+      const s = 4;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(h.x - s, h.y - s, s*2, s*2);
+      ctx.strokeStyle = COLORS.handle;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(h.x - s + 1, h.y - s + 1, s*2 - 2, s*2 - 2);
+    });
+
+    // 坐标轴：绘制在句柄之上（截图里 x/y 箭头遮住了 n/w 句柄）
+    if (state.showAxes){
+      const o = pts[0];
+      const len = 78;
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = COLORS.axisX;
+      arrow(o.x, o.y, o.x + len, o.y);
+      ctx.fillStyle = COLORS.axisX; ctx.font = "11px 'Segoe UI',sans-serif";
+      ctx.fillText("x", o.x + len - 6, o.y - 5);
+      ctx.strokeStyle = COLORS.axisY;
+      arrow(o.x, o.y, o.x, o.y + len);
+      ctx.fillStyle = COLORS.axisY;
+      ctx.fillText("y", o.x - 13, o.y + len - 4);
+    }
+    ctx.restore();
+  }
+
+  function arrow(x1,y1,x2,y2){
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    const a = Math.atan2(y2-y1, x2-x1);
+    ctx.beginPath();
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2 - 6*Math.cos(a-0.42), y2 - 6*Math.sin(a-0.42));
+    ctx.lineTo(x2 - 6*Math.cos(a+0.42), y2 - 6*Math.sin(a+0.42));
+    ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+  }
+
+  // ---------- 状态栏 ----------
+  function updateStatus(){
+    const r = sel();
+    const el = document.getElementById("statusLeft");
+    if (!r){ el.textContent = "位置=— 大小=— 旋转=— 曲线=0.0°"; return; }
+    el.textContent =
+      `位置=${fmt3(r.x - r.w/2)} 大小=${Math.round(r.w)}×${Math.round(r.h)} ` +
+      `旋转=${r.angle.toFixed(1)}° 曲线=0.0°`;
+
+    const v = view();
+    const right = document.getElementById("statusRight");
+    let s = `图像 ${v.iw}×${v.ih} · 画布 ${v.cw}×${v.ch} · 缩放 ${(v.s*100).toFixed(1)}%`;
+    if (state.cursor){
+      const p = canvasToImage(state.cursor.cx, state.cursor.cy);
+      const rect = cv.getBoundingClientRect();
+      s += ` · 光标 图像(${p.x.toFixed(1)}, ${p.y.toFixed(1)})` +
+           ` 画布(${Math.round(state.cursor.cx)}, ${Math.round(state.cursor.cy)})` +
+           ` 屏幕(${Math.round(rect.left + state.cursor.cx)}, ${Math.round(rect.top + state.cursor.cy)})`;
+      const rgb = sampleRGB(p.x, p.y);
+      if (rgb) s += ` RGB(${rgb})`;
+    }
+    right.textContent = s + " · F2 属性页";
+  }
+
+  function sampleRGB(ix, iy){
+    if (!state.imgData) return null;
+    const x = Math.floor(ix), y = Math.floor(iy);
+    if (x < 0 || y < 0 || x >= state.imgData.width || y >= state.imgData.height) return null;
+    const d = state.imgData.data, i = (y * state.imgData.width + x) * 4;
+    if (d[i+1] === d[i] && d[i+2] === d[i]) return d[i];
+    return `${d[i]},${d[i+1]},${d[i+2]}`;
+  }
+
+  // ---------- 交互 ----------
+  cv.addEventListener("pointerdown", e => {
+    cv.setPointerCapture(e.pointerId);
+    const rect = cv.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const r = sel();
+
+    // 1) 句柄（仅选中区域）
+    if (r){
+      if (state.allowRotate && e.altKey){
+        for (const h of handlePointsCanvas(r)){
+          if (Math.hypot(h.x-cx, h.y-cy) <= 7 && (h.id === "ne" || h.id === "nw" || h.id === "se" || h.id === "sw")){
+            state.drag = { mode:"rotate", startAngle:r.angle,
+                           startImg:canvasToImage(cx, cy) };
+            return;
+          }
+        }
+      }
+      if (state.allowSize){
+        for (const h of handlePointsCanvas(r)){
+          if (Math.hypot(h.x-cx, h.y-cy) <= 7){
+            state.drag = { mode:"resize", handle:h.id,
+                           start:{x:r.x,y:r.y,w:r.w,h:r.h,angle:r.angle},
+                           startImg:canvasToImage(cx, cy),
+                           startLocal:imageToLocal(r, ...Object.values(canvasToImage(cx, cy))) };
+            return;
+          }
+        }
+      }
+    }
+
+    // 2) 命中区域（取最上层）
+    const p = canvasToImage(cx, cy);
+    for (let i = state.regions.length - 1; i >= 0; i--){
+      if (pointInRegion(state.regions[i], p.x, p.y)){
+        state.selected = i;
+        syncToolbar();
+        if (state.allowMove && !e.altKey){
+          state.drag = { mode:"move", start:{x:state.regions[i].x, y:state.regions[i].y},
+                         startImg:p };
+        }
+        draw();
+        return;
+      }
+    }
+
+    // 3) 空白：平移
+    state.drag = { mode:"pan", startX:cx, startY:cy, panX:state.panX, panY:state.panY };
+  });
+
+  cv.addEventListener("pointermove", e => {
+    const rect = cv.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    state.cursor = { cx, cy };
+    const r = sel();
+    const img = canvasToImage(cx, cy);
+
+    if (state.drag){
+      const d = state.drag;
+      if (d.mode === "pan"){
+        state.panX = d.panX + (cx - d.startX);
+        state.panY = d.panY + (cy - d.startY);
+      } else if (d.mode === "move" && r){
+        r.x = clamp(d.start.x + (img.x - d.startImg.x), -1e5, 1e5);
+        r.y = clamp(d.start.y + (img.y - d.startImg.y), -1e5, 1e5);
+      } else if (d.mode === "rotate" && r){
+        const a0 = Math.atan2(d.startImg.y - r.y, d.startImg.x - r.x);
+        const a1 = Math.atan2(img.y - r.y, img.x - r.x);
+        r.angle = d.startAngle + rad2deg(a1 - a0);
+        normalizeAngle(r);
+      } else if (d.mode === "resize" && r){
+        resizeByHandle(d, img);
+      }
+      draw();
+      return;
+    }
+
+    // 光标反馈
+    let cur = "default";
+    if (r){
+      let onHandle = false;
+      for (const h of handlePointsCanvas(r)){
+        if (Math.hypot(h.x-cx, h.y-cy) <= 7){ onHandle = true; break; }
+      }
+      if (onHandle && state.allowSize) cur = "nwse-resize";
+      else if (pointInRegion(r, img.x, img.y) && state.allowMove) cur = "move";
+    }
+    cv.style.cursor = cur;
+    updateStatus();
+  });
+
+  cv.addEventListener("pointerup", e => {
+    if (state.drag){
+      state.drag = null;
+      try { cv.releasePointerCapture(e.pointerId); } catch(_){}
+      syncToolbar();
+      draw();
+    }
+  });
+
+  cv.addEventListener("pointercancel", () => { state.drag = null; });
+
+  cv.addEventListener("dblclick", () => openDialog());
+
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    const rect = cv.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const before = canvasToImage(cx, cy);
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    state.zoom = clamp(state.zoom * factor, 0.1, 10);
+    const v = view();
+    const wantX = cx - before.x * v.s;
+    const wantY = cy - before.y * v.s;
+    state.panX += wantX - v.ox;
+    state.panY += wantY - v.oy;
+    state.cursor = { cx, cy };
+    draw();
+  }, { passive:false });
+
+  function normalizeAngle(r){
+    while (r.angle > 180) r.angle -= 360;
+    while (r.angle < -180) r.angle += 360;
+  }
+
+  function resizeByHandle(d, img){
+    const r = sel();
+    if (!r) return;
+    const st = d.start;
+    const a = deg2rad(st.angle);
+    const p = { x: img.x - st.x, y: img.y - st.y };
+    const lx =  p.x*Math.cos(a) + p.y*Math.sin(a);
+    const ly = -p.x*Math.sin(a) + p.y*Math.cos(a);
+    const sx = d.handle.includes("e") ? 1 : d.handle.includes("w") ? -1 : 0;
+    const sy = d.handle.includes("s") ? 1 : d.handle.includes("n") ? -1 : 0;
+
+    let nw = st.w + sx * (lx - d.startLocal.x);
+    let nh = st.h + sy * (ly - d.startLocal.y);
+    nw = Math.max(8, nw); nh = Math.max(8, nh);
+
+    const ox = (nw - st.w) * sx / 2;
+    const oy = (nh - st.h) * sy / 2;
+    r.w = nw; r.h = nh;
+    r.x = st.x + ox*Math.cos(a) - oy*Math.sin(a);
+    r.y = st.y + ox*Math.sin(a) + oy*Math.cos(a);
+    r.angle = st.angle;
+  }
+
+  // ---------- 工具栏 ----------
+  function syncToolbar(){
+    const r = sel();
+    document.getElementById("roiName").value = r ? r.name : "";
+    document.getElementById("note").value = r
+      ? `ROI 编辑器 Mock · 区域 ${state.selected+1}/${state.regions.length} · 图像坐标（px）`
+      : "ROI 编辑器 Mock · 无区域";
+    document.getElementById("indexLabel").textContent = `# ${Math.min(state.selected+1, state.regions.length)}`;
+  }
+
+  document.getElementById("roiName").addEventListener("change", e => {
+    const r = sel();
+    if (r){ r.name = e.target.value.trim() || "EditRegion"; }
+    draw();
+  });
+
+  const boxAxis = document.getElementById("boxAxis");
+  document.getElementById("chkAxis").addEventListener("change", e => {
+    state.showAxes = e.target.checked;
+    boxAxis.classList.toggle("on", state.showAxes);
+    draw();
+  });
+  boxAxis.parentElement.addEventListener("click", e => {
+    if (e.target.tagName === "INPUT") return;
+    const cb = document.getElementById("chkAxis");
+    cb.checked = !cb.checked;
+    cb.dispatchEvent(new Event("change"));
+  });
+
+  document.getElementById("btnOverlay").addEventListener("click", () => {
+    state.displayMode = state.displayMode === "hidden" ? "input" : "hidden";
+    syncDisplayUI();
+    draw();
+  });
+
+  document.getElementById("btnDelete").addEventListener("click", deleteSelected);
+  document.getElementById("btnZoomIn").addEventListener("click", () => {
+    state.zoom = clamp(state.zoom * 1.2, 0.1, 10); draw();
+  });
+
+  function deleteSelected(){
+    if (!state.regions.length) return;
+    state.regions.splice(state.selected, 1);
+    state.selected = Math.max(0, Math.min(state.selected, state.regions.length - 1));
+    syncToolbar(); draw();
+  }
+
+  function addRegion(){
+    const v = view();
+    const c = canvasToImage(v.cw/2, v.ch/2);
+    state.regions.push({ name:`EditRegion${state.regions.length+1}`,
+      x: c.x, y: c.y, w: 120, h: 120, angle: 0 });
+    state.selected = state.regions.length - 1;
+    syncToolbar(); draw();
+  }
+
+  // ---------- 属性页 ----------
+  let snapshot = null;
+  const dlgWrap = document.getElementById("dialogWrap");
+  const dlg = document.getElementById("dialog");
+
+  function syncDisplayUI(){
+    const shown = state.displayMode === "hidden" ? "全部隐藏" : "仅输入图形";
+    document.getElementById("displayBtn").textContent = shown;
+    document.getElementById("displayEq").textContent = state.displayMode === "hidden" ? "= 0" : "= 1";
+    document.querySelectorAll("#comboDisplay .combo-list div").forEach(d => {
+      d.classList.toggle("sel", d.dataset.v === state.displayMode);
+    });
+    document.querySelectorAll("#dialog .box").forEach(b => {});
+  }
+
+  function refreshChecks(){
+    const map = [["boxMove","ckMove",state.allowMove],["boxSize","ckSize",state.allowSize],
+                 ["boxRot","ckRot",state.allowRotate],["boxCurve","ckCurve",state.allowCurve]];
+    map.forEach(([box, cb, val]) => {
+      document.getElementById(cb).checked = val;
+      document.getElementById(box).classList.toggle("on", val);
+    });
+  }
+
+  [["ckMove","boxMove","allowMove"],["ckSize","boxSize","allowSize"],
+   ["ckRot","boxRot","allowRotate"],["ckCurve","boxCurve","allowCurve"]].forEach(([cb, box, key]) => {
+    document.getElementById(cb).addEventListener("change", e => {
+      state[key] = e.target.checked;
+      document.getElementById(box).classList.toggle("on", e.target.checked);
+    });
+  });
+
+  document.querySelectorAll("[data-spin]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const [id, delta] = btn.dataset.spin.split(":");
+      const el = document.getElementById(id);
+      const step = parseFloat(el.step) || 1;
+      el.value = (parseFloat(el.value || "0") + Number(delta) * step).toFixed(3);
+    });
+  });
+
+  const combo = document.getElementById("comboDisplay");
+  document.getElementById("displayBtn").addEventListener("click", e => {
+    e.stopPropagation();
+    combo.classList.toggle("open");
+  });
+  document.querySelectorAll("#comboDisplay .combo-list div").forEach(d => {
+    d.addEventListener("click", () => {
+      state.displayMode = d.dataset.v;
+      combo.classList.remove("open");
+      syncDisplayUI();
+      draw();
+    });
+  });
+  document.addEventListener("click", () => combo.classList.remove("open"));
+
+  function openDialog(){
+    const r = sel();
+    if (!r) { addRegion(); }
+    const rr = sel();
+    snapshot = {
+      x: rr.x, y: rr.y, angle: rr.angle, name: rr.name,
+      mode: state.displayMode,
+      move: state.allowMove, size: state.allowSize,
+      rot: state.allowRotate, curve: state.allowCurve
+    };
+    document.getElementById("inX").value = fmt3(rr.x - rr.w/2);
+    document.getElementById("inY").value = fmt3(rr.y - rr.h/2);
+    document.getElementById("inA").value = fmt3(rr.angle);
+    document.getElementById("inName").value = "";
+    refreshChecks();
+    syncDisplayUI();
+    dlgWrap.classList.add("open");
+  }
+  function closeDialog(){
+    dlgWrap.classList.remove("open");
+    combo.classList.remove("open");
+  }
+
+  document.getElementById("dlgOk").addEventListener("click", () => {
+    const r = sel();
+    if (r){
+      const left = parseFloat(document.getElementById("inX").value) || 0;
+      const top  = parseFloat(document.getElementById("inY").value) || 0;
+      r.x = left + r.w/2;
+      r.y = top + r.h/2;
+      r.angle = parseFloat(document.getElementById("inA").value) || 0;
+      normalizeAngle(r);
+      r.name = document.getElementById("inName").value.trim() || r.name;
+    }
+    closeDialog();
+    syncToolbar(); draw();
+  });
+  document.getElementById("dlgCancel").addEventListener("click", () => {
+    if (snapshot){
+      state.displayMode = snapshot.mode;
+      state.allowMove = snapshot.move;
+      state.allowSize = snapshot.size;
+      state.allowRotate = snapshot.rot;
+      state.allowCurve = snapshot.curve;
+    }
+    closeDialog(); refreshChecks(); syncDisplayUI(); draw();
+  });
+  document.getElementById("dlgClose").addEventListener("click", () => {
+    document.getElementById("dlgCancel").click();
+  });
+  dlgWrap.addEventListener("click", e => { if (e.target === dlgWrap) document.getElementById("dlgCancel").click(); });
+
+  // 标题栏拖动
+  (function(){
+    const title = document.getElementById("dlgTitle");
+    let drag = null;
+    title.addEventListener("pointerdown", e => {
+      if (e.target.closest(".win-btn")) return;
+      const rect = dlg.getBoundingClientRect();
+      dlg.style.transform = "none";
+      dlg.style.left = rect.left + "px";
+      dlg.style.top = rect.top + "px";
+      drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+      title.setPointerCapture(e.pointerId);
+    });
+    title.addEventListener("pointermove", e => {
+      if (!drag) return;
+      dlg.style.left = (e.clientX - drag.dx) + "px";
+      dlg.style.top = (e.clientY - drag.dy) + "px";
+    });
+    title.addEventListener("pointerup", () => { drag = null; });
+  })();
+
+  // ---------- 键盘 ----------
+  window.addEventListener("keydown", e => {
+    if (e.key === "F2") { e.preventDefault(); openDialog(); return; }
+    if (e.key === "Escape" && dlgWrap.classList.contains("open")) { document.getElementById("dlgCancel").click(); return; }
+    if (dlgWrap.classList.contains("open")) return;
+    if (e.key === "Insert") { e.preventDefault(); addRegion(); }
+    if (e.key === "Delete") { e.preventDefault(); deleteSelected(); }
+    if (e.key === "+" || e.key === "=") { state.zoom = clamp(state.zoom*1.1, .1, 10); draw(); }
+    if (e.key === "-") { state.zoom = clamp(state.zoom*0.9, .1, 10); draw(); }
+    if (e.key === "0") { fitView(); }
+  });
+
+  // ---------- 启动 ----------
+  window.addEventListener("resize", resizeCanvas);
+
+  state.img.onload = function(){
+    state.imgLoaded = true;
+    // 原图像素缓存（RGB 读数）
+    try {
+      const off = document.createElement("canvas");
+      off.width = state.img.naturalWidth; off.height = state.img.naturalHeight;
+      const octx = off.getContext("2d");
+      octx.drawImage(state.img, 0, 0);
+      state.imgData = octx.getImageData(0, 0, off.width, off.height);
+    } catch(err){ state.imgData = null; }
+    resizeCanvas();
+    fitView();
+    syncToolbar();
+    syncDisplayUI();
+  };
+  state.img.onerror = function(){
+    state.imgLoaded = false;
+    draw();
+  };
+  state.img.src = IMG_SRC;
+
+  resizeCanvas();
+  syncToolbar();
+  syncDisplayUI();
+  refreshChecks();
+  updateStatus();
+})();
+</script>
+</body>
+</html>
