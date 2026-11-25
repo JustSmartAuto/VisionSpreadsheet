@@ -743,6 +743,29 @@ function bootEditor(cvEl){
   }
 
   // ---------- 绘制 ----------
+  let outsideBlinkOn = true;
+  function hasRegionOutsideImage(){
+    if (!state.imgLoaded) return false;
+    const iw = state.img.naturalWidth, ih = state.img.naturalHeight;
+    const outside = p => p[0] < 0 || p[1] < 0 || p[0] > iw || p[1] > ih;
+    for (const r of state.regions){
+      if (r.type === "circle"){
+        const rad = r.w / 2;
+        if (r.x-rad < 0 || r.y-rad < 0 || r.x+rad > iw || r.y+rad > ih) return true;
+      } else if (r.type === "polygon" && r.points){
+        if (r.points.some(outside)) return true;
+      } else if (r.type === "rotation"){
+        for (let edge = 0; edge < 4; edge++){
+          for (let i = 0; i <= 64; i++){
+            const p = edgePointImage(r, edge, i/64);
+            if (outside([p.x, p.y])) return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   function resizeCanvas(){
     const cw = stage.clientWidth, ch = stage.clientHeight;
     // 画布尺寸交给 p5（内部按 pixelDensity 处理 DPR），编辑器仍以 CSS 像素坐标绘制
@@ -779,6 +802,14 @@ function bootEditor(cvEl){
       ctx.fillStyle = "#6b6455";
       ctx.font = "13px 'Segoe UI','Microsoft YaHei',sans-serif";
       ctx.fillText("未载入图像：拖入 .json 标注文件，或点击工具栏上传", 20, 30);
+    }
+
+    if (state.imgLoaded && outsideBlinkOn && hasRegionOutsideImage()){
+      ctx.save();
+      ctx.strokeStyle = "#ff4fa3";
+      ctx.lineWidth = 6;
+      ctx.strokeRect(v.ox + 3, v.oy + 3, Math.max(0, v.w - 6), Math.max(0, v.h - 6));
+      ctx.restore();
     }
 
     if (state.displayMode === "hidden"){ updateStatus(); return; }
@@ -2231,6 +2262,10 @@ function bootEditor(cvEl){
 
   // ---------- 启动 ----------
   window.addEventListener("resize", resizeCanvas);
+  setInterval(() => {
+    outsideBlinkOn = !outsideBlinkOn;
+    if (state.imgLoaded && hasRegionOutsideImage()) draw();
+  }, 500);
 
   loadImageSrc(IMG_SRC, "图像_0000_20261102055654.png", null);
 
