@@ -314,6 +314,9 @@
     <button class="tb-btn" id="btnDelete" title="删除当前区域（Delete）">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="13" height="13"/><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="#ff3b30" stroke-width="1.6"/></svg>
     </button>
+    <button class="tb-btn" id="btnExportJson" title="导出 X-AnyLabeling 标注 JSON（图片以 imageData 内嵌）">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 2v7.5M5 7l3 3 3-3"/><path d="M2 11.5v2.5h12v-2.5"/></svg>
+    </button>
 
     <select id="comboC" title="边缘/参数选择（示例）">
       <option>C16</option><option>C32</option><option>C64</option><option>C128</option>
@@ -1002,6 +1005,77 @@
       x: c.x, y: c.y, w: 120, h: 120, angle: 0 });
     state.selected = state.regions.length - 1;
     syncToolbar(); draw();
+  }
+
+  // ---------- 导出 X-AnyLabeling 标注 JSON（只用 imageData 存图，不写 imagePath） ----------
+  document.getElementById("btnExportJson").addEventListener("click", exportAnyLabelingJson);
+
+  function arrayBufferToBase64(buf){
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH){
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    }
+    return btoa(bin);
+  }
+
+  async function imageBase64(){
+    // 1) 单文件版：IMG_SRC 本身就是 data URI，直接取载荷
+    const m = /^data:[^;,]*(?:;[^,]*)?;base64,([\s\S]*)$/.exec(IMG_SRC);
+    if (m) return m[1];
+    // 2) 通过 HTTP 读取原图字节（避免画布跨域污染）
+    try {
+      const resp = await fetch(IMG_SRC);
+      if (resp.ok) return arrayBufferToBase64(await resp.arrayBuffer());
+    } catch(err){ /* 走回退 */ }
+    // 3) 回退：从画布导出（file:// 直开时可能因污染失败）
+    try {
+      const off = document.createElement("canvas");
+      off.width = state.img.naturalWidth; off.height = state.img.naturalHeight;
+      off.getContext("2d").drawImage(state.img, 0, 0);
+      return off.toDataURL("image/png").split(",")[1];
+    } catch(err){ return null; }
+  }
+
+  function buildAnyLabelingJson(b64){
+    return {
+      version: "3.2.1",
+      flags: {},
+      shapes: state.regions.map(r => ({
+        label: r.name,
+        score: null,
+        points: cornersImage(r).map(p => [p.x, p.y]),
+        group_id: null,
+        description: "",
+        difficult: false,
+        shape_type: "rotation",
+        flags: {},
+        attributes: {},
+        kie_linking: [],
+        direction: r.angle
+      })),
+      imagePath: "",
+      imageData: b64,
+      imageHeight: state.imgLoaded ? state.img.naturalHeight : 0,
+      imageWidth: state.imgLoaded ? state.img.naturalWidth : 0
+    };
+  }
+
+  async function exportAnyLabelingJson(){
+    if (!state.imgLoaded){ alert("图像尚未加载完成，无法导出标注。"); return; }
+    if (!state.regions.length){ alert("当前没有 ROI 区域可导出。"); return; }
+    const b64 = await imageBase64();
+    if (!b64){ alert("无法内嵌图像：请通过 HTTP 打开页面，或使用单文件版（index.single.html）。"); return; }
+    const json = buildAnyLabelingJson(b64);
+    const txt = JSON.stringify(json, null, 2);
+    const isDataUri = /^data:/i.test(IMG_SRC);
+    const file = isDataUri ? "annotations" : (IMG_SRC.split("/").pop() || "annotations").replace(/\.[^.]+$/, "");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([txt], { type: "application/json" }));
+    a.download = file + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   // ---------- 属性页 ----------
