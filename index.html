@@ -619,10 +619,29 @@ function bootEditor(cvEl){
     const half = (e % 2 === 0) ? r.h/2 : r.w/2;
     return { x: n.x*half, y: n.y*half };
   }
-  // 二次贝塞尔控制点：中点沿外法线偏移 2×挠度，曲线 t=0.5 处恰好达到挠度值
-  function edgeCtrlImage(r, e){
-    const m = edgeMidLocal(r, e), nrm = EDGE_NORMALS[e], b = edgeBend(r, e);
-    return localToImage(r, m.x + nrm.x*2*b, m.y + nrm.y*2*b);
+  // 边为圆弧：过两端角点与该边弧顶（中点沿外法线偏移挠度），挠度即矢高
+  function edgeArcImage(r, e){
+    const b = edgeBend(r, e);
+    const cs = cornersImage(r);
+    const A = cs[e], B = cs[(e+1)%4];
+    const nrm = EDGE_NORMALS[e];
+    const a = deg2rad(r.angle), ca = Math.cos(a), sa = Math.sin(a);
+    const nx = nrm.x*ca - nrm.y*sa;        // 图像坐标下的外法线
+    const ny = nrm.x*sa + nrm.y*ca;
+    const mx = (A.x + B.x)/2, my = (A.y + B.y)/2;
+    const M = { x: mx + nx*b, y: my + ny*b };            // 弧顶
+    const L = Math.hypot(B.x - A.x, B.y - A.y);          // 弦长
+    const c = (b*b - L*L/4) / (2*b);                     // 圆心沿法线的偏移（挠度超过半弦长时变号=大圆弧）
+    const cx = mx + nx*c, cy = my + ny*c;
+    const R = Math.hypot(A.x - cx, A.y - cy);
+    const aA = Math.atan2(A.y - cy, A.x - cx);
+    const aB = Math.atan2(B.y - cy, B.x - cx);
+    const aM = Math.atan2(M.y - cy, M.x - cx);
+    const wrap = v => { while (v <= -Math.PI) v += 2*Math.PI; while (v > Math.PI) v -= 2*Math.PI; return v; };
+    let sweep = wrap(aB - aA);
+    // 弧顶不在 A→B 短弧上时改走长弧
+    if (Math.sign(wrap(aM - aA)) !== Math.sign(sweep)) sweep -= Math.sign(sweep) * 2*Math.PI;
+    return { A, B, M, cx, cy, R, aA, sweep };
   }
   // 弧上一点（图像坐标）；挠度不足 0.5px 时退化为直线
   function edgePointImage(r, e, t){
@@ -631,11 +650,9 @@ function bootEditor(cvEl){
     if (Math.abs(edgeBend(r, e)) < 0.5){
       return { x: A.x + (B.x-A.x)*t, y: A.y + (B.y-A.y)*t };
     }
-    const C = edgeCtrlImage(r, e), it = 1-t;
-    return {
-      x: it*it*A.x + 2*it*t*C.x + t*t*B.x,
-      y: it*it*A.y + 2*it*t*C.y + t*t*B.y
-    };
+    const arc = edgeArcImage(r, e);
+    const ang = arc.aA + arc.sweep*t;
+    return { x: arc.cx + arc.R*Math.cos(ang), y: arc.cy + arc.R*Math.sin(ang) };
   }
 
   // 8 个手柄：四角=缩放；四边中点=弯曲（位置随挠度落在弧顶）
@@ -717,10 +734,6 @@ function bootEditor(cvEl){
 
   function drawRegion(r, isSel){
     const pts = cornersCanvas(r);
-    const ctrls = [0,1,2,3].map(e => {
-      const p = edgeCtrlImage(r, e);
-      return imageToCanvas(p.x, p.y);
-    });
     ctx.save();
     ctx.strokeStyle = COLORS.roi;
     ctx.lineWidth = isSel ? 2 : 1.2;
@@ -729,7 +742,14 @@ function bootEditor(cvEl){
     for (let e = 0; e < 4; e++){
       const B = pts[(e+1) % 4];
       if (Math.abs(edgeBend(r, e)) >= 0.5){
-        ctx.quadraticCurveTo(ctrls[e].x, ctrls[e].y, B.x, B.y);
+        // 圆弧边：按弧长自适应细分后连成折线（保持圆环弧的等曲率外观）
+        const arc = edgeArcImage(r, e);
+        const n = Math.max(16, Math.min(192, Math.ceil(Math.abs(arc.sweep) * arc.R / 2)));
+        for (let k = 1; k <= n; k++){
+          const ang = arc.aA + arc.sweep * k / n;
+          const q = imageToCanvas(arc.cx + arc.R*Math.cos(ang), arc.cy + arc.R*Math.sin(ang));
+          ctx.lineTo(q.x, q.y);
+        }
       } else {
         ctx.lineTo(B.x, B.y);
       }
@@ -992,11 +1012,11 @@ function bootEditor(cvEl){
           normalizeAngle(r);
         }
       } else if (d.mode === "bend" && r){
-        // 弯曲：把指针位移投影到该边的外法线上，累加到挠度
+        // 弯曲：把指针位移投影到该边的外法线上，累加到挠度（上限随该边弦长，可拉成大圆弧）
         const l1 = imageToLocal(r, img.x, img.y);
         const dx = l1.x - d.startLocal.x, dy = l1.y - d.startLocal.y;
         const n = EDGE_NORMALS[d.edge];
-        const lim = Math.max(8, Math.min(r.w, r.h));
+        const lim = Math.max(8, (d.edge % 2 === 0) ? r.w : r.h);
         setEdgeBend(r, d.edge, clamp(d.startBend + dx*n.x + dy*n.y, -0.6*lim, 1.5*lim));
       } else if (d.mode === "resize" && r){
         resizeByHandle(d, img);
@@ -1392,7 +1412,7 @@ function bootEditor(cvEl){
   }
 
   // ---------- 弯曲 ROI 的多边形拟合 ----------
-  // 全保真点数按弦高误差 ≤ POLY_TOL 估计（二次贝塞尔分段误差 ≈ 挠度/(2n²)），
+  // 全保真点数按圆弧弦高误差 ≤ POLY_TOL 估算（每段圆心角 θ 的矢高 R(1-cos(θ/2))），
   // 实际取 80%（POLY_RATIO）以近似原始曲率，并限制总点数不超 POLY_MAX。
   const POLY_TOL = 0.5;
   const POLY_RATIO = 0.8;
@@ -1403,7 +1423,10 @@ function bootEditor(cvEl){
     for (let e = 0; e < 4; e++){
       const b = Math.abs(edgeBend(r, e));
       if (b < 0.5) continue;
-      const full = Math.max(2, Math.ceil(Math.sqrt(b / (2*POLY_TOL))));
+      const arc = edgeArcImage(r, e);
+      const R = Math.max(arc.R, POLY_TOL);
+      const stepAng = 2 * Math.acos(clamp(1 - POLY_TOL / R, -1, 1)); // 单段允许的最大圆心角
+      const full = Math.max(2, Math.ceil(Math.abs(arc.sweep) / Math.max(stepAng, 1e-6)));
       counts[e] = Math.max(2, Math.round(full * POLY_RATIO));
     }
     const total = counts.reduce((a, b) => a + b, 0);
