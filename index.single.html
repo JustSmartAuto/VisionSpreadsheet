@@ -1328,16 +1328,17 @@ function bootEditor(cvEl){
 
   cv.addEventListener("contextmenu", e => {
     e.preventDefault();
+    e.stopPropagation();
     closeCtxMenu();
     const rect = cv.getBoundingClientRect();
     const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
     const img = canvasToImage(cx, cy);
 
-    // 命中最上层非 locked 区域 → 先选中它
+    // 右键可选中任意区域，包括 locked 区域，以便解锁
     let hitIdx = -1;
     for (let i = state.regions.length - 1; i >= 0; i--){
       const r = state.regions[i];
-      if (!r.locked && pointInRegion(r, img.x, img.y)){ hitIdx = i; break; }
+      if (pointInRegion(r, img.x, img.y)){ hitIdx = i; break; }
     }
     if (hitIdx >= 0) state.selected = hitIdx;
     else { state.selected = -1; }  // 空白处右键：取消选中
