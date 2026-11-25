@@ -1666,7 +1666,7 @@ function bootEditor(cvEl){
 
   // ---------- 载入 X-AnyLabeling 标注 JSON（上传/拖放、重置缩放、标签开关、清除） ----------
   const jsonInput = document.getElementById("fileJson");
-  document.getElementById("btnOpenImage").addEventListener("click", () => openNativeImage());
+  document.getElementById("btnOpenImage").addEventListener("click", () => openImage());
   document.getElementById("btnLoadJson").addEventListener("click", () => jsonInput.click());
   jsonInput.addEventListener("change", e => {
     const f = e.target.files && e.target.files[0];
@@ -1711,7 +1711,7 @@ function bootEditor(cvEl){
       const path = payload.paths && payload.paths[0];
       if (!path) return;
       if (/\.json$/i.test(path)) readNativeJson(path);
-      else openNativeImage(path);
+      else openImage(path);
     }).catch(err => {
       console.error(err);
       notify(`拖放监听失败：${err.message || err}`);
@@ -1726,7 +1726,10 @@ function bootEditor(cvEl){
       e.preventDefault();
       stage.classList.remove("dragging");
       const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      if (f) readJsonFile(f);
+      if (f){
+        if (/\.json$/i.test(f.name)) readJsonFile(f);
+        else openImage(f);
+      }
     });
   }
 
@@ -2036,13 +2039,22 @@ function bootEditor(cvEl){
     }, 400);
   }
 
-  async function openNativeImage(path){
-    if (!tauriCore){ notify("原生图片打开功能仅在 Tauri 版可用"); return; }
+  async function openImage(source){
     const btn = document.getElementById("btnOpenImage");
     btn.disabled = true;
     try {
-      const hasPath = typeof path === "string" && path.length > 0;
-      const picked = await tauriCore.invoke(hasPath ? "open_image_path" : "open_image", hasPath ? { path } : {});
+      if (source && typeof source !== "string" && typeof source.arrayBuffer === "function"){
+        if (source.type && !source.type.startsWith("image/")) throw new Error("请选择图片文件");
+        clearTimeout(autoSaveTimer);
+        state.autoSavePath = "";
+        const b64 = arrayBufferToBase64(await source.arrayBuffer());
+        await loadImageReady(`data:${source.type || "image/png"};base64,${b64}`, source.name, b64);
+        notify(`已打开图片：${source.name}`);
+        return;
+      }
+      if (!tauriCore){ notify("原生图片打开功能仅在 Tauri 版可用"); return; }
+      const hasPath = typeof source === "string" && source.length > 0;
+      const picked = await tauriCore.invoke(hasPath ? "open_image_path" : "open_image", hasPath ? { path:source } : {});
       if (!picked) return;
       clearTimeout(autoSaveTimer);
       state.autoSavePath = "";
