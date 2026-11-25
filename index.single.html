@@ -642,19 +642,24 @@
       if (rh) drawRotateHandle(rh);
     }
 
-    // 坐标轴：绘制在句柄之上（截图里 x/y 箭头遮住了 n/w 句柄）
+    // 坐标轴：绘制在句柄之上（截图里 x/y 箭头遮住了 n/w 句柄），方向跟随 ROI 旋转角
     if (state.showAxes){
-      const o = pts[0];
+      const o = pts[0];                 // 左上角（本地坐标 -w/2,-h/2）
       const len = 78;
+      const a = deg2rad(r.angle), ca = Math.cos(a), sa = Math.sin(a);
+      const ux = ca, uy = sa;           // 本地 +x 在画布中的方向
+      const vx = -sa, vy = ca;          // 本地 +y 在画布中的方向
+      const ex = o.x + ux * len, ey = o.y + uy * len;   // x 轴箭头终点
+      const gy = { x: o.x + vx * len, y: o.y + vy * len }; // y 轴箭头终点
       ctx.lineWidth = 1.6;
       ctx.strokeStyle = COLORS.axisX;
-      arrow(o.x, o.y, o.x + len, o.y);
+      arrow(o.x, o.y, ex, ey);
       ctx.fillStyle = COLORS.axisX; ctx.font = "11px 'Segoe UI',sans-serif";
-      ctx.fillText("x", o.x + len - 6, o.y - 5);
+      ctx.fillText("x", ex - 6*ux - 5*vx, ey - 6*uy - 5*vy);
       ctx.strokeStyle = COLORS.axisY;
-      arrow(o.x, o.y, o.x, o.y + len);
+      arrow(o.x, o.y, gy.x, gy.y);
       ctx.fillStyle = COLORS.axisY;
-      ctx.fillText("y", o.x - 13, o.y + len - 4);
+      ctx.fillText("y", gy.x - 4*vx - 13*ux, gy.y - 4*vy - 13*uy);
     }
     ctx.restore();
   }
@@ -812,8 +817,8 @@
           let da = rad2deg(a1 - d.lastAng);
           while (da > 180) da -= 360;
           while (da < -180) da += 360;
-          da = clamp(da, -8, 8);
-          r.angle += da * 0.35;
+          da = clamp(da, -4, 4);
+          r.angle += da * 0.175;
           d.lastAng = a1;
           normalizeAngle(r);
         } else {
