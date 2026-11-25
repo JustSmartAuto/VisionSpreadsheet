@@ -1494,11 +1494,27 @@ function bootEditor(cvEl){
 
     if (hasBend(r) && sx){
       const radius = st.w / st.bR;
-      const nw = Math.max(8, st.w + sx * (lx - d.startLocal.x));
-      const nb = nw / radius;
-      const na = a + sx * (nb - st.bR) / 2;
       const sectorX = st.x - Math.sin(a)*radius;
       const sectorY = st.y + Math.cos(a)*radius;
+      const sign = Math.sign(radius);
+      const mouseAngle = Math.atan2(sign*(img.x-sectorX), -sign*(img.y-sectorY));
+      const oldAngle = a + sx*st.bR/2;
+      if (!Number.isFinite(d.arcDelta)){
+        d.arcDelta = 0;
+        d.lastArcMouseAngle = oldAngle;
+      }
+      let step = mouseAngle - d.lastArcMouseAngle;
+      while (step > Math.PI) step -= 2*Math.PI;
+      while (step < -Math.PI) step += 2*Math.PI;
+      d.arcDelta += step;
+      d.lastArcMouseAngle = mouseAngle;
+      let delta = d.arcDelta;
+      let nb = st.bR + sx*delta;
+      if (st.bR > 0) nb = nb <= 0 ? 2*Math.PI : Math.min(nb, 2*Math.PI);
+      else nb = nb >= 0 ? -2*Math.PI : Math.max(nb, -2*Math.PI);
+      delta = sx*(nb - st.bR);
+      const nw = nb * radius;
+      const na = a + delta/2;
       r.w = nw;
       r.bR = nb;
       r.x = sectorX + Math.sin(na)*radius;
