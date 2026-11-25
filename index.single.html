@@ -525,6 +525,7 @@
     <div class="ctx-item" data-act="add_circle"><span class="ctx-ico">◯</span>添加圆形</div>
   </div>
   <div class="ctx-sep"></div>
+  <div class="ctx-item" data-act="edit_region"><span class="ctx-ico">✎</span>编辑区域</div>
   <div class="ctx-item" data-act="toggle_lock"><span class="ctx-ico">🔓</span>锁定 / 解锁</div>
   <div class="ctx-item danger" data-act="delete"><span class="ctx-ico">🗑</span>删除标注</div>
 </div>
@@ -1215,7 +1216,8 @@ function bootEditor(cvEl){
         state.selected = i;
         syncToolbar();
         if (state.allowMove && !e.altKey){
-          state.drag = { mode:"move", start:{x:r.x, y:r.y}, startImg:p };
+          state.drag = { mode:"move", start:{x:r.x, y:r.y}, startImg:p,
+                         startPoints:r.type === "polygon" ? r.points.map(pt => [...pt]) : null };
         }
         draw();
         return;
@@ -1243,8 +1245,12 @@ function bootEditor(cvEl){
         state.panX = d.panX + (cx - d.startX);
         state.panY = d.panY + (cy - d.startY);
       } else if (d.mode === "move" && r){
-        r.x = clamp(d.start.x + (img.x - d.startImg.x), -1e5, 1e5);
-        r.y = clamp(d.start.y + (img.y - d.startImg.y), -1e5, 1e5);
+        const dx = img.x - d.startImg.x, dy = img.y - d.startImg.y;
+        r.x = clamp(d.start.x + dx, -1e5, 1e5);
+        r.y = clamp(d.start.y + dy, -1e5, 1e5);
+        if (r.type === "polygon" && d.startPoints){
+          r.points = d.startPoints.map(([x, y]) => [x + dx, y + dy]);
+        }
       } else if (d.mode === "rotate" && r){
         const a1 = Math.atan2(img.y - r.y, img.x - r.x);
         if (d.damp){
@@ -1395,7 +1401,7 @@ function bootEditor(cvEl){
     const hasSel = hitIdx >= 0;
     document.querySelectorAll(".ctx-menu .ctx-item").forEach(el => {
       const act = el.dataset.act;
-      if (act === "toggle_lock" || act === "delete"){
+      if (act === "edit_region" || act === "toggle_lock" || act === "delete"){
         el.classList.toggle("disabled", !hasSel);
         // 更新锁图标文字
         if (act === "toggle_lock" && hasSel){
@@ -1429,6 +1435,7 @@ function bootEditor(cvEl){
     if (act === "add_rotation") addRegion("rotation", img);
     else if (act === "add_circle") addRegion("circle", img);
     else if (act === "add_polygon") addRegion("polygon", img);
+    else if (act === "edit_region") editSelectedRegion();
     else if (act === "toggle_lock") toggleLock();
     else if (act === "delete") deleteSelected();
     closeCtxMenu();
@@ -1568,7 +1575,7 @@ function bootEditor(cvEl){
     } else if (type === "polygon"){
       state.polyEdit = {
         points: [[c.x, c.y-60], [c.x+60, c.y+45], [c.x-60, c.y+45]],
-        hoverIdx: -1, hoverEdge: -1
+        hoverIdx: -1, hoverEdge: -1, regionIdx: -1
       };
       state.selected = -1;  // 选中会干扰 polyEdit 的绘制，先 -1
       notify("边上单击添加顶点，拖动顶点调整，边外双击结束");
@@ -1583,6 +1590,19 @@ function bootEditor(cvEl){
     syncToolbar(); draw(); scheduleAutoSave();
   }
 
+  function editSelectedRegion(){
+    const r = sel();
+    if (!r) return;
+    if (r.type !== "polygon"){ openDialog(); return; }
+    state.polyEdit = {
+      points: r.points.map(pt => [...pt]), hoverIdx: -1, hoverEdge: -1,
+      regionIdx: state.selected
+    };
+    state.selected = -1;
+    notify("边上单击添加顶点，拖动顶点调整，边外双击结束");
+    syncToolbar(); draw();
+  }
+
   function finishPolygon(){
     if (!state.polyEdit) return;
     const pts = state.polyEdit.points;
@@ -1590,11 +1610,17 @@ function bootEditor(cvEl){
       const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
       const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
       const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-      r = { name: `Polygon${state.regions.length+1}`, type:"polygon",
-            x: cx, y: cy, w: 0, h: 0, angle: 0, bR: 0, locked:false,
-            points: pts };
-      state.regions.push(r);
-      state.selected = state.regions.length - 1;
+      const regionIdx = state.polyEdit.regionIdx;
+      if (regionIdx >= 0 && state.regions[regionIdx]){
+        Object.assign(state.regions[regionIdx], { x:cx, y:cy, points:pts });
+        state.selected = regionIdx;
+      } else {
+        const r = { name: `Polygon${state.regions.length+1}`, type:"polygon",
+              x: cx, y: cy, w: 0, h: 0, angle: 0, bR: 0, locked:false,
+              points: pts };
+        state.regions.push(r);
+        state.selected = state.regions.length - 1;
+      }
       scheduleAutoSave();
     } else {
       notify("多边形需要至少 3 个点，已取消");
