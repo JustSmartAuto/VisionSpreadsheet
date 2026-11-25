@@ -4,7 +4,45 @@ plan/
 /dist
 /corpus
 /log
-.DS_Store
-/.claude/
 /target-*/
 /craft-fonts/
+.DS_Store
+Thumbs.db
+Desktop.ini
+/.claude/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Visual Studio and editors
+.vs/
+*.sln.ide/
+.vscode/
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+# NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.assets.json
+project.lock.json
+
+# Tools
+FodyWeavers.xsd
+.qoder/
