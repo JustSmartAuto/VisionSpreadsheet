@@ -365,7 +365,7 @@
   </div>
 
   <div id="stage">
-    <div id="hint">滚轮：以光标为锚点缩放 · 拖拽空白：平移 · 拖右侧中点：弯曲 · 拖底部 ↻：旋转 · 双击区域 / F2：属性页</div>
+    <div id="hint">滚轮：以光标为锚点缩放 · 拖拽空白：平移 · 拖右侧弯曲图标：弯曲 · 拖底部 ↻：旋转 · 双击区域 / F2：属性页</div>
     <input type="file" id="fileJson" accept=".json,application/json" class="hidden">
   </div>
 
@@ -612,8 +612,11 @@ function bootEditor(cvEl){
   }
   const HANDLES = [
     {id:"nw", u:-1, v:-1}, {id:"ne", u:1, v:-1},
-    {id:"e",  u:1,  v:0},
     {id:"se", u:1,  v:1},  {id:"sw", u:-1, v:1}
+  ];
+  const EDGE_HANDLES = [
+    {id:"n", edge:0}, {id:"e", edge:1},
+    {id:"s", edge:2}, {id:"w", edge:3}
   ];
 
   // 边序号 0=上(nw→ne) 1=右(ne→se) 2=下(se→sw) 3=左(sw→nw)
@@ -628,13 +631,38 @@ function bootEditor(cvEl){
     return Math.abs(r.w/bendAngle(r) + (e === 0 ? r.h/2 : -r.h/2));
   }
 
-  // 5 个手柄：四角=缩放；仅右侧中点=整体弯曲
+  // 四角缩放手柄；弯曲入口使用独立的边外图标
   function handlePointsCanvas(r){
     return HANDLES.map(h => {
       const p = curvedPointImage(r, h.u*r.w/2, h.v*r.h/2);
       const q = imageToCanvas(p.x, p.y);
-      return { id:h.id, x:q.x, y:q.y, bendEdge:h.id === "e" ? 1 : undefined };
+      return { id:h.id, x:q.x, y:q.y };
     });
+  }
+
+  // 四边中点：单独调整宽或高；弯曲边上仍取实际轮廓的中点
+  function edgeHandlePointsCanvas(r){
+    return EDGE_HANDLES.map(h => {
+      const p = edgePointImage(r, h.edge, 0.5);
+      const q = imageToCanvas(p.x, p.y);
+      return { id:h.id, x:q.x, y:q.y };
+    });
+  }
+  function edgeResizeCursor(r, id){
+    const a = deg2rad(r.angle);
+    const direction = id === "e" ? a + bendAngle(r)/2
+                    : id === "w" ? a - bendAngle(r)/2
+                    : a + Math.PI/2;
+    const step = ((Math.round(direction/(Math.PI/4)) % 4) + 4) % 4;
+    return ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"][step];
+  }
+
+  // 弯曲柄：右端中点沿端部切线外侧固定 26 画布像素处
+  function bendHandleCanvas(r){
+    const p = curvedPointImage(r, r.w/2, 0);
+    const q = imageToCanvas(p.x, p.y);
+    const a = deg2rad(r.angle) + bendAngle(r)/2;
+    return { x:q.x + Math.cos(a)*26, y:q.y + Math.sin(a)*26 };
   }
 
   // 旋转柄：底边中点外侧固定 26 画布像素处（与弯曲柄分开，避免争用）
@@ -739,15 +767,28 @@ function bootEditor(cvEl){
 
     if (!isSel) { ctx.restore(); return; }
 
-    // 句柄：品红细框 + 白色内芯（四角缩放，仅右侧中点控制整体弯曲）
-    handlePointsCanvas(r).forEach(h => {
-      const s = 4;
+    // 四角与四边中点缩放手柄：品红细框 + 白色内芯
+    [...handlePointsCanvas(r), ...edgeHandlePointsCanvas(r)].forEach(h => {
+      const s = h.id.length === 1 ? 3 : 4;
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(h.x - s, h.y - s, s*2, s*2);
       ctx.strokeStyle = COLORS.handle;
       ctx.lineWidth = 2;
       ctx.strokeRect(h.x - s + 1, h.y - s + 1, s*2 - 2, s*2 - 2);
     });
+
+    // 弯曲柄：右端外侧的圆弧箭头图标，牵引线连接到右端中点
+    if (state.allowCurve){
+      const bh = bendHandleCanvas(r);
+      const basePoint = curvedPointImage(r, r.w/2, 0);
+      const base = imageToCanvas(basePoint.x, basePoint.y);
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,0,255,.5)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(bh.x, bh.y); ctx.stroke();
+      ctx.restore();
+      drawBendHandle(bh);
+    }
 
     // 旋转柄：底边中点外侧的圆形 ↻（连线提示其归属），按住拖动可旋转区域
     if (state.allowRotate){
@@ -762,35 +803,61 @@ function bootEditor(cvEl){
       drawRotateHandle(rh);
     }
 
-    // 坐标轴：绘制在句柄之上，方向跟随 ROI 旋转角
+    // 坐标轴：X 沿上边、Y 沿左端边；弯曲后仍贴合实际轮廓
     if (state.showAxes){
-      const o = pts[0];                 // 左上角（本地坐标 -w/2,-h/2）
-      const len = 78;
-      const a = deg2rad(r.angle), ca = Math.cos(a), sa = Math.sin(a);
-      const ux = ca, uy = sa;           // 本地 +x 在画布中的方向
-      const vx = -sa, vy = ca;          // 本地 +y 在画布中的方向
-      const ex = o.x + ux * len, ey = o.y + uy * len;   // x 轴箭头终点
-      const gy = { x: o.x + vx * len, y: o.y + vy * len }; // y 轴箭头终点
+      const xAxis = edgeAxisPoints(r, 0, false);
+      const yAxis = edgeAxisPoints(r, 3, true);
+      const xt = xAxis[xAxis.length-1], yt = yAxis[yAxis.length-1];
       ctx.lineWidth = 1.6;
       ctx.strokeStyle = COLORS.axisX;
-      arrow(o.x, o.y, ex, ey);
+      arrow(xAxis);
       ctx.fillStyle = COLORS.axisX; ctx.font = "11px 'Segoe UI',sans-serif";
-      ctx.fillText("x", ex - 6*ux - 5*vx, ey - 6*uy - 5*vy);
+      ctx.fillText("x", xt.x + 6, xt.y - 6);
       ctx.strokeStyle = COLORS.axisY;
-      arrow(o.x, o.y, gy.x, gy.y);
+      arrow(yAxis);
       ctx.fillStyle = COLORS.axisY;
-      ctx.fillText("y", gy.x - 4*vx - 13*ux, gy.y - 4*vy - 13*uy);
+      ctx.fillText("y", yt.x + 6, yt.y - 6);
     }
     ctx.restore();
   }
 
-  function arrow(x1,y1,x2,y2){
-    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-    const a = Math.atan2(y2-y1, x2-x1);
+  // 从边起点取指定画布长度的点列；左端边反向取值，使 Y 轴由左上角指向左下角
+  function edgeAxisPoints(r, e, reverse, maxLen = 78){
+    const curved = hasBend(r) && (e === 0 || e === 2);
+    const steps = curved ? 128 : 1;
+    const points = [];
+    let prev = null, walked = 0;
+    for (let i = 0; i <= steps; i++){
+      const t = reverse ? 1-i/steps : i/steps;
+      const p = edgePointImage(r, e, t);
+      const q = imageToCanvas(p.x, p.y);
+      if (prev){
+        const d = Math.hypot(q.x-prev.x, q.y-prev.y);
+        if (d > 0 && walked + d >= maxLen){
+          const k = (maxLen-walked)/d;
+          points.push({ x:prev.x+(q.x-prev.x)*k, y:prev.y+(q.y-prev.y)*k });
+          return points;
+        }
+        walked += d;
+      }
+      points.push(q);
+      prev = q;
+    }
+    return points;
+  }
+
+  function arrow(points){
+    if (points.length < 2) return;
     ctx.beginPath();
-    ctx.moveTo(x2,y2);
-    ctx.lineTo(x2 - 6*Math.cos(a-0.42), y2 - 6*Math.sin(a-0.42));
-    ctx.lineTo(x2 - 6*Math.cos(a+0.42), y2 - 6*Math.sin(a+0.42));
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
+    const tip = points[points.length-1], prev = points[points.length-2];
+    const a = Math.atan2(tip.y-prev.y, tip.x-prev.x);
+    ctx.beginPath();
+    ctx.moveTo(tip.x, tip.y);
+    ctx.lineTo(tip.x - 6*Math.cos(a-0.42), tip.y - 6*Math.sin(a-0.42));
+    ctx.lineTo(tip.x - 6*Math.cos(a+0.42), tip.y - 6*Math.sin(a+0.42));
     ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
   }
 
@@ -814,6 +881,28 @@ function bootEditor(cvEl){
     ctx.moveTo(tx + L*Math.cos(dir), ty + L*Math.sin(dir));
     ctx.lineTo(tx - L*0.7*Math.cos(dir - 0.6), ty - L*0.7*Math.sin(dir - 0.6));
     ctx.lineTo(tx - L*0.7*Math.cos(dir + 0.6), ty - L*0.7*Math.sin(dir + 0.6));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 右端外侧的弯曲柄：圆弧箭头图标，与旋转柄保持一致的视觉风格
+  function drawBendHandle(p){
+    const rad = 6.2, a0 = deg2rad(205), a1 = deg2rad(335);
+    ctx.save();
+    ctx.strokeStyle = COLORS.handle;
+    ctx.fillStyle = COLORS.handle;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y+2, rad, a0, a1);
+    ctx.stroke();
+
+    const tx = p.x + rad*Math.cos(a1), ty = p.y + 2 + rad*Math.sin(a1);
+    const dir = a1 + Math.PI/2, L = 4.2;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx - L*Math.cos(dir-0.55), ty - L*Math.sin(dir-0.55));
+    ctx.lineTo(tx - L*Math.cos(dir+0.55), ty - L*Math.sin(dir+0.55));
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -898,20 +987,20 @@ function bootEditor(cvEl){
         }
       }
       const handles = handlePointsCanvas(r);
-      // 右侧中点：拖动后整个矩形形成弯曲矩形
+      // 右端外侧：圆弧箭头图标控制整体弯曲
       if (state.allowCurve){
-        for (const h of handles){
-          if (h.bendEdge === undefined) continue;
-          if (Math.hypot(h.x-cx, h.y-cy) <= 7){
-            state.drag = { mode:"bend" };
-            return;
-          }
+        const bh = bendHandleCanvas(r);
+        if (Math.hypot(bh.x-cx, bh.y-cy) <= 9){
+          const p0 = canvasToImage(cx, cy);
+          const lp = imageToLocal(r, p0.x, p0.y);
+          state.drag = { mode:"bend", startBend:bendAngle(r),
+                         startAngle:Math.atan2(lp.y, lp.x) };
+          return;
         }
       }
-      // 四角：缩放
+      // 四角：双向缩放；四边中点：单方向调整宽或高
       if (state.allowSize){
-        for (const h of handles){
-          if (h.bendEdge !== undefined) continue;
+        for (const h of [...handles, ...edgeHandlePointsCanvas(r)]){
           if (Math.hypot(h.x-cx, h.y-cy) <= 7){
             const startImg = canvasToImage(cx, cy);
             state.drag = { mode:"resize", handle:h.id,
@@ -975,10 +1064,13 @@ function bootEditor(cvEl){
           normalizeAngle(r);
         }
       } else if (d.mode === "bend" && r){
-        // 右侧中点相对 ROI 中心的方向决定圆心角；上下边同步弯曲，左右端边保持直线
+        // 以按下图标时的角度为基准，避免边外按钮造成初次拖动跳变
         const p = imageToLocal(r, img.x, img.y);
+        let da = Math.atan2(p.y, p.x) - d.startAngle;
+        while (da > Math.PI) da -= 2*Math.PI;
+        while (da < -Math.PI) da += 2*Math.PI;
         const lim = maxBendAngle(r);
-        r.bR = clamp(4*Math.atan2(p.y, p.x), -lim, lim);
+        r.bR = clamp(d.startBend + 4*da, -lim, lim);
       } else if (d.mode === "resize" && r){
         resizeByHandle(d, img);
       }
@@ -989,19 +1081,26 @@ function bootEditor(cvEl){
     // 光标反馈
     let cur = "default";
     if (r){
-      let onHandle = false, onBend = false, onRotate = false;
+      let onHandle = false, onEdge = null, onBend = false, onRotate = false;
       if (state.allowRotate){
         const rh = rotateHandleCanvas(r);
         onRotate = Math.hypot(rh.x-cx, rh.y-cy) <= 9;
       }
+      if (state.allowCurve){
+        const bh = bendHandleCanvas(r);
+        onBend = Math.hypot(bh.x-cx, bh.y-cy) <= 9;
+      }
       for (const h of handlePointsCanvas(r)){
-        if (Math.hypot(h.x-cx, h.y-cy) <= 7){
-          if (h.bendEdge !== undefined) onBend = true; else onHandle = true;
+        if (Math.hypot(h.x-cx, h.y-cy) <= 7) onHandle = true;
+      }
+      if (state.allowSize && !onHandle){
+        for (const h of edgeHandlePointsCanvas(r)){
+          if (Math.hypot(h.x-cx, h.y-cy) <= 7){ onEdge = h.id; break; }
         }
       }
       if (onRotate && state.allowRotate) cur = "grab";
       else if (onBend && state.allowCurve) cur = "crosshair";
-      else if (onHandle && state.allowSize) cur = "nwse-resize";
+      else if ((onHandle || onEdge) && state.allowSize) cur = onEdge ? edgeResizeCursor(r, onEdge) : "nwse-resize";
       else if (pointInRegion(r, img.x, img.y) && state.allowMove) cur = "move";
     }
     cv.style.cursor = cur;
