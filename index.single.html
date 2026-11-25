@@ -1209,7 +1209,7 @@ function bootEditor(cvEl){
           if (Math.hypot(h.x-cx, h.y-cy) <= 7){
             const startImg = canvasToImage(cx, cy);
             state.drag = { mode:"resize", handle:h.id,
-                           start:{x:r.x,y:r.y,w:r.w,h:r.h,angle:r.angle},
+                           start:{x:r.x,y:r.y,w:r.w,h:r.h,angle:r.angle,bR:bendAngle(r)},
                            startImg,
                            startLocal:imageToLocal(r, startImg.x, startImg.y) };
             return;
@@ -1491,6 +1491,22 @@ function bootEditor(cvEl){
     const ly = -p.x*Math.sin(a) + p.y*Math.cos(a);
     const sx = d.handle.includes("e") ? 1 : d.handle.includes("w") ? -1 : 0;
     const sy = d.handle.includes("s") ? 1 : d.handle.includes("n") ? -1 : 0;
+
+    if (hasBend(r) && sx){
+      const radius = st.w / st.bR;
+      const nw = Math.max(8, st.w + sx * (lx - d.startLocal.x));
+      const nb = nw / radius;
+      const na = a + sx * (nb - st.bR) / 2;
+      const sectorX = st.x - Math.sin(a)*radius;
+      const sectorY = st.y + Math.cos(a)*radius;
+      r.w = nw;
+      r.bR = nb;
+      r.x = sectorX + Math.sin(na)*radius;
+      r.y = sectorY - Math.cos(na)*radius;
+      r.angle = rad2deg(na);
+      normalizeAngle(r);
+      return;
+    }
 
     let nw = st.w + sx * (lx - d.startLocal.x);
     let nh = st.h + sy * (ly - d.startLocal.y);
