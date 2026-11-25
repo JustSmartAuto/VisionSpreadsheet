@@ -118,6 +118,20 @@
     background:rgba(41,38,27,.10);
   }
   #dialogWrap.open{display:block;}
+
+  /* ---------- 右键菜单 ---------- */
+  .ctx-menu{position:fixed;z-index:9999;min-width:180px;padding:4px 0;
+    background:#faf9f5;border:1px solid #d6d1c2;border-radius:6px;
+    box-shadow:0 6px 24px rgba(41,38,27,.18);font-size:13px;color:#29261b;
+    font-family:'Segoe UI','Microsoft YaHei',sans-serif;user-select:none;}
+  .ctx-menu .ctx-group{padding:2px 0;}
+  .ctx-menu .ctx-item{display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;}
+  .ctx-menu .ctx-item:hover{background:#f0e8dc;color:#c15f3c;}
+  .ctx-menu .ctx-item.danger{color:#b04a2f;}
+  .ctx-menu .ctx-item.danger:hover{background:#fdecea;}
+  .ctx-menu .ctx-item.disabled{opacity:.4;cursor:not-allowed;pointer-events:none;}
+  .ctx-menu .ctx-ico{width:16px;text-align:center;font-size:12px;}
+  .ctx-menu .ctx-sep{height:1px;margin:4px 0;background:#e5e0d2;}
   #dialog{
     position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
     width:421px;height:757px;max-height:96vh;
@@ -503,6 +517,18 @@
   </div>
 </div>
 
+<!-- 右键菜单 -->
+<div id="ctxMenu" class="ctx-menu" style="display:none">
+  <div class="ctx-group">
+    <div class="ctx-item" data-act="add_rotation"><span class="ctx-ico">▭</span>添加旋转矩形</div>
+    <div class="ctx-item" data-act="add_polygon"><span class="ctx-ico">⬡</span>添加多边形</div>
+    <div class="ctx-item" data-act="add_circle"><span class="ctx-ico">◯</span>添加圆形</div>
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-act="toggle_lock"><span class="ctx-ico">🔓</span>锁定 / 解锁</div>
+  <div class="ctx-item danger" data-act="delete"><span class="ctx-ico">🗑</span>删除标注</div>
+</div>
+
 <script src="./p5.min.js"></script>
 <script>
   // p5 负责创建画布并管理像素密度；编辑器绘制通过 drawingContext（Canvas2D）完成，
@@ -543,8 +569,11 @@ function bootEditor(cvEl){
     dpr: window.devicePixelRatio || 1,
     regions: [
       // 截图 (1)：位置=1402.838 大小=866x822 旋转=0.0°（图像坐标，中心点存储）
-      { name: "EditRegion1", x: 1835.838, y: 1238, w: 866, h: 822, angle: 0 }
+      // type: "rotation"(旋转矩形) | "circle"(圆，用 w/2 当直径) | "polygon"(点列，r.points=[[x,y],...])
+      { name: "EditRegion1", type: "rotation", x: 1835.838, y: 1238, w: 866, h: 822, angle: 0, locked: false }
     ],
+    // polygon 正在编辑的临时状态
+    polyEdit: null,
     selected: 0,
     displayMode: "input",   // hidden | input
     showAxes: true,
@@ -682,6 +711,24 @@ function bootEditor(cvEl){
     return { x: q.x - Math.sin(a)*26, y: q.y + Math.cos(a)*26 };
   }
   function pointInRegion(r, ix, iy){
+    // circle：圆心 (r.x, r.y)，半径 r.w/2
+    if (r.type === "circle"){
+      const cx = r.x, cy = r.y, rad = r.w / 2;
+      return Math.hypot(ix - cx, iy - cy) <= rad;
+    }
+    // polygon：点在多边形内（射线法）
+    if (r.type === "polygon" && r.points && r.points.length >= 3){
+      let inside = false;
+      for (let i = 0, j = r.points.length - 1; i < r.points.length; j = i++){
+        const xi = r.points[i][0], yi = r.points[i][1];
+        const xj = r.points[j][0], yj = r.points[j][1];
+        const intersect = ((yi > iy) !== (yj > iy)) &&
+          (ix < (xj - xi) * (iy - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+    // rotation：原逻辑（支持弯曲）
     const p = imageToLocal(r, ix, iy);
     const b = bendAngle(r);
     if (Math.abs(b) < BEND_EPS) return Math.abs(p.x) <= r.w/2 && Math.abs(p.y) <= r.h/2;
@@ -740,43 +787,143 @@ function bootEditor(cvEl){
   }
 
   function drawRegion(r, isSel){
-    const pts = cornersCanvas(r);
+    const isLocked = !!r.locked;
+    const isShield = r.name && r.name.startsWith("<屏蔽>");
     ctx.save();
     ctx.strokeStyle = COLORS.roi;
     ctx.lineWidth = isSel ? 2 : 1.2;
+
+    // === 路径：根据 type 选画法 ===
     ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let e = 0; e < 4; e++){
-      // 上、下长边为同心圆弧；左、右端边始终为直线
-      const curved = (e === 0 || e === 2) && hasBend(r);
-      const n = curved
-        ? Math.max(16, Math.min(192, Math.ceil(Math.abs(bendAngle(r)) * edgeArcRadius(r, e) / 2)))
-        : 1;
-      for (let k = 1; k <= n; k++){
-        const p = edgePointImage(r, e, k/n);
-        const q = imageToCanvas(p.x, p.y);
-        ctx.lineTo(q.x, q.y);
+    if (r.type === "circle"){
+      const c = imageToCanvas(r.x, r.y);
+      const rad = r.w / 2 * view().s;  // w=直径(图像像素)，乘以缩放
+      ctx.arc(c.x, c.y, rad, 0, Math.PI * 2);
+    } else if (r.type === "polygon" && r.points && r.points.length >= 3){
+      r.points.forEach(([px, py], i) => {
+        const q = imageToCanvas(px, py);
+        if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+      });
+      ctx.closePath();
+    } else {
+      // rotation（原逻辑，支持弯曲）
+      const pts = cornersCanvas(r);
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let e = 0; e < 4; e++){
+        const curved = (e === 0 || e === 2) && hasBend(r);
+        const n = curved
+          ? Math.max(16, Math.min(192, Math.ceil(Math.abs(bendAngle(r)) * edgeArcRadius(r, e) / 2)))
+          : 1;
+        for (let k = 1; k <= n; k++){
+          const p = edgePointImage(r, e, k/n);
+          const q = imageToCanvas(p.x, p.y);
+          ctx.lineTo(q.x, q.y);
+        }
       }
+      ctx.closePath();
     }
-    ctx.closePath();
+
+    // === 斜线填充（<屏蔽>前缀） ===
+    if (isShield){
+      ctx.save();
+      ctx.clip();
+      ctx.fillStyle = "rgba(193,95,60,.12)";
+      ctx.fillRect(-1e6, -1e6, 2e6, 2e6);
+      // 斜线 pattern：每隔 6px 画一条 1px 斜线
+      ctx.strokeStyle = "rgba(193,95,60,.35)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = -2000; i < 2000; i += 6){
+        ctx.moveTo(i, -2000);
+        ctx.lineTo(i + 2000, 0);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 锁定时填充半透明灰
+    if (isLocked){
+      ctx.fillStyle = "rgba(155,148,125,.18)";
+      ctx.fill();
+    }
+
     ctx.stroke();
 
-    // 标签：贴近左上角绘制名称（对齐显示工具 v5 的标签显示）
+    // 标签
     if (state.showLabels){
+      // 标签起点：对 circle 用画布坐标中心点，对 polygon 用第一个点
+      let labelAnchor;
+      if (r.type === "circle") labelAnchor = imageToCanvas(r.x, r.y - r.w/2);
+      else if (r.type === "polygon" && r.points) labelAnchor = imageToCanvas(r.points[0][0], r.points[0][1]);
+      else labelAnchor = cornersCanvas(r)[0];
+
       ctx.font = "12px 'Segoe UI','Microsoft YaHei',sans-serif";
       ctx.textAlign = "left";
       ctx.textBaseline = "bottom";
       ctx.shadowColor = "rgba(250,249,245,.9)";
       ctx.shadowBlur = 3;
       ctx.fillStyle = isSel ? "#c15f3c" : "#29261b";
-      ctx.fillText(r.name, pts[0].x + 4, pts[0].y - 4);
+      ctx.fillText(r.name, labelAnchor.x + 4, labelAnchor.y - 4);
       ctx.shadowBlur = 0;
       ctx.shadowColor = "transparent";
+
+      // 锁图标：锁定时在标签旁显示
+      if (isLocked){
+        ctx.font = "13px 'Segoe UI',sans-serif";
+        ctx.fillStyle = "#8a7f66";
+        ctx.fillText("🔒", labelAnchor.x + ctx.measureText(r.name).width + 8, labelAnchor.y - 4);
+      }
+    }
+
+    // polygon 编辑中的临时顶点显示
+    if (state.polyEdit && isSel){
+      state.polyEdit.points.forEach(([px, py], i) => {
+        const q = imageToCanvas(px, py);
+        ctx.fillStyle = i === state.polyEdit.hoverIdx ? "#c15f3c" : "#d97757";
+        ctx.beginPath(); ctx.arc(q.x, q.y, 4, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1; ctx.stroke();
+      });
+      // 预览虚线
+      if (state.polyEdit.points.length >= 2){
+        ctx.strokeStyle = "rgba(193,95,60,.5)"; ctx.setLineDash([4, 3]); ctx.beginPath();
+        state.polyEdit.points.forEach(([px, py], i) => {
+          const q = imageToCanvas(px, py);
+          if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+        });
+        if (state.polyEdit.points.length >= 3) ctx.closePath();
+        ctx.stroke(); ctx.setLineDash([]);
+      }
     }
 
     if (!isSel) { ctx.restore(); return; }
+    if (isLocked) { ctx.restore(); return; }  // 锁定区域不画手柄
 
-    // 四角与四边中点缩放手柄：橙红细框 + 暖白内芯
+    // circle 手柄：4 个方向调整直径 + 拖中心
+    if (r.type === "circle"){
+      const c = imageToCanvas(r.x, r.y);
+      const rad = r.w / 2 * view().s;
+      ctx.strokeStyle = "rgba(193,95,60,.5)"; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(c.x - rad, c.y); ctx.lineTo(c.x + rad, c.y);
+      ctx.moveTo(c.x, c.y - rad); ctx.lineTo(c.x, c.y + rad);
+      ctx.stroke();
+      return ctx.restore();
+    }
+
+    // polygon：只画顶点（拖拽移动顶点）
+    if (r.type === "polygon" && r.points){
+      r.points.forEach(([px, py]) => {
+        const q = imageToCanvas(px, py);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(q.x - 3, q.y - 3, 6, 6);
+        ctx.strokeStyle = COLORS.handle; ctx.lineWidth = 2;
+        ctx.strokeRect(q.x - 2.5, q.y - 2.5, 5, 5);
+      });
+      return ctx.restore();
+    }
+
+    // rotation 的原有手柄逻辑
+    const pts_c = cornersCanvas(r);
     [...handlePointsCanvas(r), ...edgeHandlePointsCanvas(r)].forEach(h => {
       const s = h.id.length === 1 ? 3 : 4;
       ctx.fillStyle = "#ffffff";
@@ -786,46 +933,38 @@ function bootEditor(cvEl){
       ctx.strokeRect(h.x - s + 1, h.y - s + 1, s*2 - 2, s*2 - 2);
     });
 
-    // 弯曲柄：右端外侧的圆弧箭头图标，牵引线连接到右端中点
     if (state.allowCurve){
       const bh = bendHandleCanvas(r);
       const basePoint = curvedPointImage(r, r.w/2, 0);
       const base = imageToCanvas(basePoint.x, basePoint.y);
       ctx.save();
-      ctx.strokeStyle = "rgba(193,95,60,.5)";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(193,95,60,.5)"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(bh.x, bh.y); ctx.stroke();
       ctx.restore();
       drawBendHandle(bh);
     }
 
-    // 旋转柄：底边中点外侧的圆形 ↻（连线提示其归属），按住拖动可旋转区域
     if (state.allowRotate){
       const rh = rotateHandleCanvas(r);
       const basePoint = curvedPointImage(r, 0, r.h/2);
       const base = imageToCanvas(basePoint.x, basePoint.y);
       ctx.save();
-      ctx.strokeStyle = "rgba(193,95,60,.5)";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(193,95,60,.5)"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(rh.x, rh.y); ctx.stroke();
       ctx.restore();
       drawRotateHandle(rh);
     }
 
-    // 坐标轴：X 沿上边、Y 沿左端边；弯曲后仍贴合实际轮廓
     if (state.showAxes){
       const xAxis = edgeAxisPoints(r, 0, false);
       const yAxis = edgeAxisPoints(r, 3, true);
       const xt = xAxis[xAxis.length-1], yt = yAxis[yAxis.length-1];
       ctx.lineWidth = 1.6;
-      ctx.strokeStyle = COLORS.axisX;
-      arrow(xAxis);
+      ctx.strokeStyle = COLORS.axisX; arrow(xAxis);
       ctx.fillStyle = COLORS.axisX; ctx.font = "11px 'Segoe UI',sans-serif";
       ctx.fillText("x", xt.x + 6, xt.y - 6);
-      ctx.strokeStyle = COLORS.axisY;
-      arrow(yAxis);
-      ctx.fillStyle = COLORS.axisY;
-      ctx.fillText("y", yt.x + 6, yt.y - 6);
+      ctx.strokeStyle = COLORS.axisY; arrow(yAxis);
+      ctx.fillStyle = COLORS.axisY; ctx.fillText("y", yt.x + 6, yt.y - 6);
     }
     ctx.restore();
   }
@@ -1022,22 +1161,43 @@ function bootEditor(cvEl){
       }
     }
 
-    // 2) 命中区域（取最上层）
+    // 2) polygon 编辑中：点击画布添加顶点；3 点以上时双击/右键结束
+    if (state.polyEdit){
+      const v = view();
+      const img = canvasToImage(cx, cy);
+      if (e.button === 2){
+        // 右键结束编辑
+        finishPolygon();
+        return;
+      }
+      state.polyEdit.points.push([+img.x.toFixed(3), +img.y.toFixed(3)]);
+      draw();
+      return;
+    }
+
+    // 3) 命中区域（取最上层，跳过 locked）
     const p = canvasToImage(cx, cy);
+    let hitLocked = false;
     for (let i = state.regions.length - 1; i >= 0; i--){
-      if (pointInRegion(state.regions[i], p.x, p.y)){
+      const r = state.regions[i];
+      if (r.locked) hitLocked = hitLocked || pointInRegion(r, p.x, p.y);
+      if (r.locked) continue;
+      if (pointInRegion(r, p.x, p.y)){
         state.selected = i;
         syncToolbar();
         if (state.allowMove && !e.altKey){
-          state.drag = { mode:"move", start:{x:state.regions[i].x, y:state.regions[i].y},
-                         startImg:p };
+          state.drag = { mode:"move", start:{x:r.x, y:r.y}, startImg:p };
         }
         draw();
         return;
       }
     }
+    if (hitLocked){
+      // 点中了 locked region 但没选中，不处理
+      return;
+    }
 
-    // 3) 空白：平移
+    // 4) 空白：平移
     state.drag = { mode:"pan", startX:cx, startY:cy, panX:state.panX, panY:state.panY };
   });
 
@@ -1151,6 +1311,82 @@ function bootEditor(cvEl){
     state.cursor = { cx, cy };
     draw();
   }, { passive:false });
+
+  // ---------- 右键菜单 ----------
+  const ctxMenu = document.getElementById("ctxMenu");
+  function closeCtxMenu(){ ctxMenu.style.display = "none"; }
+  document.addEventListener("click", e => {
+    if (!ctxMenu.contains(e.target)) closeCtxMenu();
+  });
+  document.addEventListener("contextmenu", e => {
+    if (ctxMenu.contains(e.target)) return;
+    closeCtxMenu();
+  });
+
+  cv.addEventListener("contextmenu", e => {
+    e.preventDefault();
+    closeCtxMenu();
+    const rect = cv.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const img = canvasToImage(cx, cy);
+
+    // 命中最上层非 locked 区域 → 先选中它
+    let hitIdx = -1;
+    for (let i = state.regions.length - 1; i >= 0; i--){
+      const r = state.regions[i];
+      if (!r.locked && pointInRegion(r, img.x, img.y)){ hitIdx = i; break; }
+    }
+    if (hitIdx >= 0) state.selected = hitIdx;
+    else { state.selected = -1; }  // 空白处右键：取消选中
+
+    // polygon 编辑中右键 = 结束编辑
+    if (state.polyEdit && state.polyEdit.points.length >= 2){
+      finishPolygon();
+      return;
+    }
+
+    // 菜单项显示逻辑：空白处只显示"添加"组
+    const hasSel = hitIdx >= 0;
+    document.querySelectorAll(".ctx-menu .ctx-item").forEach(el => {
+      const act = el.dataset.act;
+      if (act === "toggle_lock" || act === "delete"){
+        el.classList.toggle("disabled", !hasSel);
+        // 更新锁图标文字
+        if (act === "toggle_lock" && hasSel){
+          const r = state.regions[hitIdx];
+          const ico = el.querySelector(".ctx-ico");
+          ico.textContent = r.locked ? "🔓" : "🔒";
+          el.lastChild.textContent = r.locked ? " 解锁" : " 锁定";
+        }
+      }
+    });
+
+    // 定位（防止超出屏幕）
+    let x = e.clientX, y = e.clientY;
+    ctxMenu.style.display = "block";
+    const w = ctxMenu.offsetWidth, h = ctxMenu.offsetHeight;
+    if (x + w > window.innerWidth) x = window.innerWidth - w - 4;
+    if (y + h > window.innerHeight) y = window.innerHeight - h - 4;
+    ctxMenu.style.left = x + "px";
+    ctxMenu.style.top = y + "px";
+  });
+
+  ctxMenu.addEventListener("click", e => {
+    const item = e.target.closest(".ctx-item");
+    if (!item || item.classList.contains("disabled")) return;
+    const act = item.dataset.act;
+    const rect = cv.getBoundingClientRect();
+    const cx = parseInt(ctxMenu.style.left) - rect.left + 60;  // 菜单中心
+    const cy = parseInt(ctxMenu.style.top) - rect.top + 40;
+    const img = canvasToImage(cx, cy);
+
+    if (act === "add_rotation") addRegion("rotation", img);
+    else if (act === "add_circle") addRegion("circle", img);
+    else if (act === "add_polygon") addRegion("polygon", img);
+    else if (act === "toggle_lock") toggleLock();
+    else if (act === "delete") deleteSelected();
+    closeCtxMenu();
+  });
 
   function normalizeAngle(r){
     while (r.angle > 180) r.angle -= 360;
@@ -1272,15 +1508,53 @@ function bootEditor(cvEl){
     scheduleAutoSave();
   }
 
-  function addRegion(){
+  function addRegion(type = "rotation", center){
     const v = view();
-    const c = canvasToImage(v.cw/2, v.ch/2);
-    state.regions.push({ name:`EditRegion${state.regions.length+1}`,
-      x: c.x, y: c.y, w: 120, h: 120, angle: 0,
-      bR: 0 });
+    const c = center || canvasToImage(v.cw/2, v.ch/2);
+    let r;
+    if (type === "circle"){
+      r = { name: `Circle${state.regions.length+1}`, type:"circle",
+            x: c.x, y: c.y, w: 120, h: 120, angle: 0, bR: 0, locked:false };
+    } else if (type === "polygon"){
+      state.polyEdit = { points: [], hoverIdx: -1 };
+      state.selected = -1;  // 选中会干扰 polyEdit 的绘制，先 -1
+      notify("点击画布添加顶点，右键/3+ 点点击结束");
+      syncToolbar(); draw();
+      return;
+    } else {
+      r = { name: `EditRegion${state.regions.length+1}`, type:"rotation",
+            x: c.x, y: c.y, w: 120, h: 120, angle: 0, bR: 0, locked:false };
+    }
+    state.regions.push(r);
     state.selected = state.regions.length - 1;
+    syncToolbar(); draw(); scheduleAutoSave();
+  }
+
+  function finishPolygon(){
+    if (!state.polyEdit) return;
+    const pts = state.polyEdit.points;
+    if (pts.length >= 3){
+      const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      r = { name: `Polygon${state.regions.length+1}`, type:"polygon",
+            x: cx, y: cy, w: 0, h: 0, angle: 0, bR: 0, locked:false,
+            points: pts };
+      state.regions.push(r);
+      state.selected = state.regions.length - 1;
+      scheduleAutoSave();
+    } else {
+      notify("多边形需要至少 3 个点，已取消");
+    }
+    state.polyEdit = null;
     syncToolbar(); draw();
-    scheduleAutoSave();
+  }
+
+  function toggleLock(){
+    const r = sel();
+    if (!r) return;
+    r.locked = !r.locked;
+    draw(); scheduleAutoSave();
   }
 
   // ---------- 载入 X-AnyLabeling 标注 JSON（上传/拖放、重置缩放、标签开关、清除） ----------
@@ -1583,18 +1857,30 @@ function bootEditor(cvEl){
       version: "3.2.1",
       flags: {},
       shapes: state.regions.map(r => {
+        if (r.type === "circle"){
+          const rad = r.w / 2;
+          return {
+            label: r.name, score: null, group_id: null, description: "", difficult: false,
+            // X-AnyLabeling circle 存 [cx, cy, radius]
+            points: [+r.x.toFixed(3), +r.y.toFixed(3), +rad.toFixed(3)],
+            shape_type: "circle", flags: {}, attributes: {}, kie_linking: [], direction: 0
+          };
+        }
+        if (r.type === "polygon" && r.points){
+          return {
+            label: r.name, score: null, points: r.points.map(p => [+p[0].toFixed(3), +p[1].toFixed(3)]),
+            group_id: null, description: "", difficult: false,
+            shape_type: "polygon", flags: {}, attributes: {}, kie_linking: [], direction: 0
+          };
+        }
+        // rotation（支持弯曲导出 polygon）
         const bent = hasBend(r);
         return {
-          label: r.name,
-          score: null,
+          label: r.name, score: null,
           points: bent ? regionPolygonPoints(r) : cornersImage(r).map(p => [p.x, p.y]),
-          group_id: null,
-          description: "",
-          difficult: false,
+          group_id: null, description: "", difficult: false,
           shape_type: bent ? "polygon" : "rotation",
-          flags: {},
-          attributes: {},
-          kie_linking: [],
+          flags: {}, attributes: {}, kie_linking: [],
           direction: bent ? 0 : r.angle
         };
       }),
@@ -1855,8 +2141,10 @@ function bootEditor(cvEl){
     if (e.key === "F2") { e.preventDefault(); openDialog(); return; }
     if (e.key === "Escape" && dlgWrap.classList.contains("open")) { document.getElementById("dlgCancel").click(); return; }
     if (dlgWrap.classList.contains("open")) return;
-    if (e.key === "Insert") { e.preventDefault(); addRegion(); }
+    if (e.key === "Insert") { e.preventDefault(); addRegion("rotation"); }
     if (e.key === "Delete") { e.preventDefault(); deleteSelected(); }
+    if (e.key.toLowerCase() === "l") { e.preventDefault(); toggleLock(); }
+    if (e.key === "Escape" && state.polyEdit){ finishPolygon(); return; }
     if (e.key === "+" || e.key === "=") { state.zoom = clamp(state.zoom*1.1, .1, 10); draw(); }
     if (e.key === "-") { state.zoom = clamp(state.zoom*0.9, .1, 10); draw(); }
     if (e.key === "0") { fitView(); }
