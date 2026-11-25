@@ -6,8 +6,9 @@
 
 | 文件 | 说明 |
 |------|------|
-| `index.html` | 编辑器源码，图像通过相对路径 `../图像_0000_20261102055654.png` 引用 |
-| `index.single.html` | 单文件版，图像已内联为 data URI，可直接分发/双击打开 |
+| `index.html` | 编辑器源码（p5.js 负责画布，绘制走 `drawingContext`），图像通过相对路径 `../图像_0000_20261102055654.png` 引用 |
+| `p5.min.js` | p5.js v1.9.4（MIT），画布创建与像素密度管理 |
+| `index.single.html` | 单文件版，p5.js 与图像均已内联，可直接分发/双击打开 |
 | `build_singlefile_html.py` | 由 `index.html` 生成 `index.single.html` 的打包脚本 |
 | `README.md` | 本文档 |
 
@@ -32,9 +33,22 @@ python build_singlefile_html.py --input index.html --image ../图像_0000_202611
 - 拖 ROI 内部的四个角/边手柄缩放，拖底部 `↻` 手柄旋转（已加阻尼）
 - `Insert`：新建 ROI 并选中；`Delete`（或工具栏 ✕）：删除当前 ROI
 - 双击区域 / `F2`：打开属性页（可改位置、大小、旋转角、显示模式与允许操作项）
+- 工具栏上传按钮（⇧）：选择 `.json` 标注文件；也可把 JSON 直接拖到画布
+- 工具栏适应按钮：重置缩放为适应窗口；`A` 按钮：显示/隐藏标注名称
+- 工具栏橡皮按钮：清除（卸载图像并清空全部标注）
 - 工具栏 `✓`：显示/隐藏 ROI 图形；工具栏 `⇩`：导出 X-AnyLabeling 标注 JSON
 - 顶部参数栏可直接输入 X / Y / 宽 / 高 / 旋转角，回车或失焦生效（图像坐标 px）
-- 状态栏可查看 ROI 的位置 / 大小 / 旋转角，`#` 序号与名称可直接编辑
+- 状态栏显示当前图像来源、标注数量、图像尺寸、画布尺寸与缩放比例
+
+### 载入既有标注 JSON
+
+上传/拖入 X-AnyLabeling JSON 后即可继续编辑，映射规则：
+
+- 图像：优先使用 `imageData`（base64）作为当前图像；无 `imageData` 时沿用当前图像，仅套用标注
+- `shape_type: "rotation"`：取四点还原为旋转 ROI（宽高取相邻点距离，角度取首边方向）
+- `shape_type: "rectangle"` 及其它形状：取点集外接矩形（轴对齐）
+- 导出时若图像来自 JSON，`imageData` 原样复用，文件名基于该 JSON 名
+- 导出文件名统一带时间戳后缀 `_YYYYMMDD_HHMMSS`，例如 `图像_0000_20261102055654_20261125_111754.json`，便于区分多次导出
 
 ---
 
@@ -126,8 +140,9 @@ p0 = 左上 (nw)  →  p1 = 右上 (ne)  →  p2 = 右下 (se)  →  p3 = 左下
 
 ## imageData 的取图规则
 
-导出时按以下顺序获取 base64，确保画布不被跨域污染（`file://` 直开 `index.html` 时画布会被污染，故优先走前两步）：
+导出时按以下顺序获取 base64，确保画布不被跨域污染（`file://` 直开 `index.html` 时画布会被污染，故优先走前几步）：
 
+0. 图像是由 JSON 的 `imageData` 载入的 → 直接复用该 base64 载荷（不重新编码）
 1. `IMG_SRC` 本身是 `data:` URI（单文件版 `index.single.html`）→ 直接截取 `base64,` 之后的载荷
 2. 通过 HTTP 打开 → `fetch(IMG_SRC)` 读取原始字节，分块转 base64（不重新编码，保持原图字节）
 3. 兜底 → `canvas.toDataURL("image/png")`（仅在同源/未污染时可用）
