@@ -1,6 +1,6 @@
 # EditRegion Mock — ROI 区域编辑器
 
-浏览器端的 ROI（感兴趣区域）标注工具 Mock，用 Canvas 绘制、拖拽、缩放、旋转旋转矩形 ROI，并导出 **X-AnyLabeling** 标注 JSON。图像以 `imageData`（base64）内嵌，`imagePath` 留空。
+浏览器端的 ROI（感兴趣区域）标注工具 Mock，用 Canvas 绘制、拖拽、缩放、旋转旋转矩形 ROI；四条边中点可按住推拉成圆弧（弯曲 ROI），弯曲后导出为 **polygon 多点拟合**，否则导出为旋转矩形。图像以 `imageData`（base64）内嵌，`imagePath` 留空。
 
 ## 文件说明
 
@@ -30,7 +30,9 @@ python build_singlefile_html.py --input index.html --image ../图像_0000_202611
 ## 操作
 
 - 滚轮：以光标为锚点缩放；拖拽空白：平移
-- 拖 ROI 内部的四个角/边手柄缩放，拖底部 `↻` 手柄旋转（已加阻尼）
+- 拖 ROI 内部的四个角手柄缩放；拖四条边中点手柄**弯曲**该边（外推为外弧、内推为内弧，可同时弯多条边）
+- 拖底边中点外侧的 `↻` 圆形手柄旋转（已加阻尼）
+- 顶部参数栏右侧「拟合」显示当前 ROI 的表示形式：`矩形 4 点` 或 `多边形 N 点`（弯曲后）
 - `Insert`：新建 ROI 并选中；`Delete`（或工具栏 ✕）：删除当前 ROI
 - 双击区域 / `F2`：打开属性页（可改位置、大小、旋转角、显示模式与允许操作项）
 - 工具栏上传按钮（⇧）：选择 `.json` 标注文件；也可把 JSON 直接拖到画布
@@ -46,6 +48,7 @@ python build_singlefile_html.py --input index.html --image ../图像_0000_202611
 
 - 图像：优先使用 `imageData`（base64）作为当前图像；无 `imageData` 时沿用当前图像，仅套用标注
 - `shape_type: "rotation"`：取四点还原为旋转 ROI（宽高取相邻点距离，角度取首边方向）
+- `shape_type: "polygon"`：以首边方向为参考轴，对点集求方向包围盒（还原为旋转 ROI，弯曲本身不还原）
 - `shape_type: "rectangle"` 及其它形状：取点集外接矩形（轴对齐）
 - 导出时若图像来自 JSON，`imageData` 原样复用，文件名基于该 JSON 名
 - 导出文件名统一带时间戳后缀 `_YYYYMMDD_HHMMSS`，例如 `图像_0000_20261102055654_20261125_111754.json`，便于区分多次导出
@@ -55,7 +58,7 @@ python build_singlefile_html.py --input index.html --image ../图像_0000_202611
 # X-AnyLabeling 标注 JSON 格式说明
 
 导出的 JSON 对标 X-AnyLabeling 3.x 版本（参考样例：`图像_0000_20261102055654.json`，`version = 3.2.1`）。
-本编辑器只负责**旋转矩形** ROI，对应 X-AnyLabeling 的 `rotation` 形状。
+本编辑器支持**旋转矩形**（`rotation`）与**弯曲矩形**（`polygon` 多点拟合）两种形状。
 
 ## 顶层结构
 
@@ -79,15 +82,15 @@ python build_singlefile_html.py --input index.html --image ../图像_0000_202611
 |------|------|------|
 | `label` | string | 标注名称，默认 `EditRegion1`、`EditRegion2`…（可在工具栏改名） |
 | `score` | null | 标注置信度，人工标注固定 `null` |
-| `points` | array | 四角点坐标，`[[x0,y0],[x1,y1],[x2,y2],[x3,y3]]`，图像坐标（px） |
+| `points` | array | 未弯曲：四角点 `[[x0,y0],…,[x3,y3]]`；弯曲后：多边形拟合点序列（≥4 点，总数 ≤512） |
 | `group_id` | null | 分组 ID，固定 `null` |
 | `description` | string | 描述，固定 `""` |
 | `difficult` | boolean | 是否困难样本，固定 `false` |
-| `shape_type` | string | 形状类型，固定 `"rotation"`（旋转矩形） |
+| `shape_type` | string | 未弯曲固定 `"rotation"`（旋转矩形）；弯曲后为 `"polygon"`（多点拟合） |
 | `flags` | object | 形状级标记，固定 `{}` |
 | `attributes` | object | 形状属性，固定 `{}` |
 | `kie_linking` | array | 关键信息抽取关联，固定 `[]` |
-| `direction` | number | 旋转角度（度），等于编辑器中的 ROI 旋转角，取值 `(-180, 180]` |
+| `direction` | number | `rotation` 时为旋转角度（度，`(-180, 180]`）；`polygon` 时为 `0` |
 
 ### points 顺序
 
@@ -99,11 +102,19 @@ p0 = 左上 (nw)  →  p1 = 右上 (ne)  →  p2 = 右下 (se)  →  p3 = 左下
 
 坐标为**图像坐标系**（原点在图像左上角，x 向右、y 向下，单位 px），已包含旋转，因此四个点一般不是轴对齐矩形。
 
+### 弯曲 ROI 的 polygon 拟合
+
+任一边被推拉（挠度 ≥0.5px）后，该 ROI 改以 `shape_type: "polygon"` 导出，点为沿弯曲轮廓的采样序列：
+
+- 边建模为二次贝塞尔：以边中点为弧顶、法向位移 = 挠度，端点保持四角不动
+- 每段点数按弦高误差 ≤0.5px 计算全保真点数，再取 **80%**（`POLY_RATIO = 0.8`）以近似原始曲率
+- 全部曲边点数总和限制在 **512 点**以内，超限时按比例压缩（每条曲边至少 2 点；直边仍只贡献 1 个角点）
+- 点序仍按 左上 → 右上 → 右下 → 左下 的四边方向闭环排列
+
 ### direction 与形状的关系
 
-- `direction` 为该 ROI 的旋转角度（度），与状态栏「旋转」值一致，取值 `(-180, 180]`
-- `shape_type: "rotation"` 时，X-AnyLabeling 以 `points` 还原旋转矩形，`direction` 供界面显示与再编辑
-- 角度为 0 时同样导为 `rotation`（四点即轴对齐矩形的四角），保证同一种结构可回读
+- `shape_type: "rotation"` 时，`direction` 为该 ROI 的旋转角度（度），与状态栏「旋转」值一致，取值 `(-180, 180]`，X-AnyLabeling 以 `points` 还原旋转矩形
+- `shape_type: "polygon"` 时，`direction` 固定 `0`，形状完全由 `points` 多点拟合表示
 
 ## 示例
 
