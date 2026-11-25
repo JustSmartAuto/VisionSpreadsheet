@@ -783,7 +783,49 @@ function bootEditor(cvEl){
     state.regions.forEach((r, i) => { if (i !== state.selected) drawRegion(r, false); });
     const r = sel();
     if (r) drawRegion(r, true);
+    drawPolygonEdit();
     updateStatus();
+  }
+
+  function drawPolygonEdit(){
+    if (!state.polyEdit) return;
+    const edit = state.polyEdit;
+    const pts = edit.points.map(([x, y]) => imageToCanvas(x, y));
+    ctx.save();
+    ctx.strokeStyle = COLORS.roi;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    pts.forEach((q, i) => { if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y); });
+    ctx.closePath();
+    ctx.stroke();
+    if (edit.hoverEdge >= 0){
+      const a = pts[edit.hoverEdge], b = pts[(edit.hoverEdge + 1) % pts.length];
+      ctx.strokeStyle = "#c15f3c"; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    pts.forEach((q, i) => {
+      const hovered = i === edit.hoverIdx;
+      ctx.fillStyle = hovered ? "#c15f3c" : "#d97757";
+      ctx.beginPath(); ctx.arc(q.x, q.y, hovered ? 8 : 6, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  function polygonEditHit(cx, cy){
+    if (!state.polyEdit) return null;
+    const pts = state.polyEdit.points.map(([x, y]) => imageToCanvas(x, y));
+    for (let i = 0; i < pts.length; i++){
+      if (Math.hypot(pts[i].x - cx, pts[i].y - cy) <= 10) return { type:"vertex", index:i };
+    }
+    for (let i = 0; i < pts.length; i++){
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx*dx + dy*dy;
+      const t = len2 ? Math.max(0, Math.min(1, ((cx-a.x)*dx + (cy-a.y)*dy) / len2)) : 0;
+      if (Math.hypot(cx - (a.x + t*dx), cy - (a.y + t*dy)) <= 8) return { type:"edge", index:i };
+    }
+    return null;
   }
 
   function drawRegion(r, isSel){
@@ -872,26 +914,6 @@ function bootEditor(cvEl){
         ctx.font = "13px 'Segoe UI',sans-serif";
         ctx.fillStyle = "#8a7f66";
         ctx.fillText("🔒", labelAnchor.x + ctx.measureText(r.name).width + 8, labelAnchor.y - 4);
-      }
-    }
-
-    // polygon 编辑中的临时顶点显示
-    if (state.polyEdit && isSel){
-      state.polyEdit.points.forEach(([px, py], i) => {
-        const q = imageToCanvas(px, py);
-        ctx.fillStyle = i === state.polyEdit.hoverIdx ? "#c15f3c" : "#d97757";
-        ctx.beginPath(); ctx.arc(q.x, q.y, 4, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1; ctx.stroke();
-      });
-      // 预览虚线
-      if (state.polyEdit.points.length >= 2){
-        ctx.strokeStyle = "rgba(193,95,60,.5)"; ctx.setLineDash([4, 3]); ctx.beginPath();
-        state.polyEdit.points.forEach(([px, py], i) => {
-          const q = imageToCanvas(px, py);
-          if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
-        });
-        if (state.polyEdit.points.length >= 3) ctx.closePath();
-        ctx.stroke(); ctx.setLineDash([]);
       }
     }
 
@@ -1161,16 +1183,20 @@ function bootEditor(cvEl){
       }
     }
 
-    // 2) polygon 编辑中：点击画布添加顶点；3 点以上时双击/右键结束
+    // 2) polygon 编辑中：边上单击插点，顶点拖动，边外双击结束
     if (state.polyEdit){
-      const v = view();
       const img = canvasToImage(cx, cy);
-      if (e.button === 2){
-        // 右键结束编辑
-        finishPolygon();
-        return;
+      const hit = polygonEditHit(cx, cy);
+      if (e.detail > 1) return;
+      if (hit && hit.type === "vertex"){
+        state.drag = { mode:"polyVertex", index:hit.index };
+      } else if (hit && hit.type === "edge"){
+        const index = hit.index + 1;
+        state.polyEdit.points.splice(index, 0, [+img.x.toFixed(3), +img.y.toFixed(3)]);
+        state.polyEdit.hoverIdx = index;
+        state.polyEdit.hoverEdge = -1;
+        state.drag = { mode:"polyVertex", index };
       }
-      state.polyEdit.points.push([+img.x.toFixed(3), +img.y.toFixed(3)]);
       draw();
       return;
     }
@@ -1242,7 +1268,18 @@ function bootEditor(cvEl){
         r.bR = clamp(d.startBend + 4*da, -lim, lim);
       } else if (d.mode === "resize" && r){
         resizeByHandle(d, img);
+      } else if (d.mode === "polyVertex" && state.polyEdit){
+        state.polyEdit.points[d.index] = [+img.x.toFixed(3), +img.y.toFixed(3)];
       }
+      draw();
+      return;
+    }
+
+    if (state.polyEdit){
+      const hit = polygonEditHit(cx, cy);
+      state.polyEdit.hoverIdx = hit && hit.type === "vertex" ? hit.index : -1;
+      state.polyEdit.hoverEdge = hit && hit.type === "edge" ? hit.index : -1;
+      cv.style.cursor = hit ? (hit.type === "vertex" ? "move" : "crosshair") : "default";
       draw();
       return;
     }
@@ -1294,7 +1331,12 @@ function bootEditor(cvEl){
     cv.style.cursor = "default";
   });
 
-  cv.addEventListener("dblclick", () => openDialog());
+  cv.addEventListener("dblclick", e => {
+    if (state.polyEdit){
+      const rect = cv.getBoundingClientRect();
+      if (!polygonEditHit(e.clientX - rect.left, e.clientY - rect.top)) finishPolygon();
+    } else openDialog();
+  });
 
   cv.addEventListener("wheel", e => {
     e.preventDefault();
@@ -1521,9 +1563,12 @@ function bootEditor(cvEl){
       r = { name: `Circle${state.regions.length+1}`, type:"circle",
             x: c.x, y: c.y, w: 120, h: 120, angle: 0, bR: 0, locked:false };
     } else if (type === "polygon"){
-      state.polyEdit = { points: [], hoverIdx: -1 };
+      state.polyEdit = {
+        points: [[c.x, c.y-60], [c.x+60, c.y+45], [c.x-60, c.y+45]],
+        hoverIdx: -1, hoverEdge: -1
+      };
       state.selected = -1;  // 选中会干扰 polyEdit 的绘制，先 -1
-      notify("点击画布添加顶点，右键/3+ 点点击结束");
+      notify("边上单击添加顶点，拖动顶点调整，边外双击结束");
       syncToolbar(); draw();
       return;
     } else {
