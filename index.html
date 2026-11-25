@@ -1398,6 +1398,10 @@ function bootEditor(cvEl){
     const r = sel();
     if (!r) return;
     const st = d.start;
+    if (r.type === "circle"){
+      r.w = r.h = Math.max(8, 2 * Math.hypot(img.x - st.x, img.y - st.y));
+      return;
+    }
     const a = deg2rad(st.angle);
     const p = { x: img.x - st.x, y: img.y - st.y };
     const lx =  p.x*Math.cos(a) + p.y*Math.sin(a);
