@@ -1,0 +1,103 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{6E2D98BE-7FD7-46E0-9AD5-CB9FEAF0CE26}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>PictureBoxEx</RootNamespace>
+    <AssemblyName>PictureBoxEx</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup>
+    <StartupObject />
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="OpenCvSharp">
+      <HintPath>..\Debug_Tool1013\Debug_Tool\OpenCvSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="OpenCvSharp.Extensions">
+      <HintPath>..\Debug_Tool1013\Debug_Tool\OpenCvSharp.Extensions.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup>
+    <AppDesigner Include="Properties\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Display\Properties\Resources.cs" />
+    <Compile Include="Display\Properties\Settings.Designer.cs">
+      <DependentUpon>Settings.settings</DependentUpon>
+      <AutoGen>True</AutoGen>
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+    </Compile>
+    <Compile Include="Display\U_DisPlay.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Display\U_DisPlay_Pen.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Tool_View\BlobAreaSort.cs" />
+    <Compile Include="Tool_View\BlobModel.cs" />
+    <Compile Include="Tool_View\Caculate.cs" />
+    <Compile Include="Tool_View\CaliperDirection.cs" />
+    <Compile Include="Tool_View\CaliperSearchModel.cs" />
+    <Compile Include="Tool_View\CaliperSearchNumber.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsCaliperRect.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsCalipersDistance.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsCalipersLine.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsCircle.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsDot.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsDots.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsLine.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsLines.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsLineSegment.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsMat.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsObject.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsShape.cs" />
+    <Compile Include="Tool_View\CvDisplayGraphicsShapeCollection.cs" />
+    <Compile Include="Tool_View\D_UpData.cs" />
+    <Compile Include="Tool_View\ICvDisplayGraphics.cs" />
+    <Compile Include="Tool_View\MatHelper.cs" />
+    <Compile Include="Tool_View\PosChangedEventArgs.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Display\Properties\Resources.resources" />
+    <EmbeddedResource Include="Display\U_DisPlay.resources" />
+    <EmbeddedResource Include="Display\U_DisPlay_Pen.resources" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="app.config" />
+    <None Include="Display\Properties\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+    </None>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

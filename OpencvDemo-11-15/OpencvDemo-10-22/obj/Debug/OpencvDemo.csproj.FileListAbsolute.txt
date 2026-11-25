@@ -1,0 +1,13 @@
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\bin\Debug\OpencvDemo.exe.config
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\bin\Debug\OpencvDemo.exe
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\bin\Debug\OpencvDemo.pdb
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\obj\Debug\OpencvDemo.csproj.AssemblyReference.cache
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\obj\Debug\OpencvDemo.Form1.resources
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\obj\Debug\OpencvDemo.Properties.Resources.resources
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\obj\Debug\OpencvDemo.csproj.GenerateResource.cache
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\obj\Debug\OpencvDemo.csproj.CoreCompileInputs.cache
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\obj\Debug\OpencvDemo.exe
+C:\Users\Administrator.DESKTOP-NE8KM6J\source\repos\OpencvDemo\obj\Debug\OpencvDemo.pdb
+C:\Users\ZY00088\Desktop\开源opencv\OpencvDemo-10-22\OpencvDemo-10-22\bin\Debug\OpencvDemo.exe.config
+C:\Users\ZY00088\Desktop\开源opencv\OpencvDemo-10-22\OpencvDemo-10-22\obj\Debug\OpencvDemo.exe
+C:\Users\ZY00088\Desktop\开源opencv\OpencvDemo-10-22\OpencvDemo-10-22\obj\Debug\OpencvDemo.pdb

@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<opencv_storage>
+<m_cameraMatrix type_id="opencv-matrix">
+  <rows>0</rows>
+  <cols>0</cols>
+  <dt>u</dt>
+  <data></data></m_cameraMatrix>
+<m_distCoeffs type_id="opencv-matrix">
+  <rows>0</rows>
+  <cols>0</cols>
+  <dt>u</dt>
+  <data></data></m_distCoeffs>
+</opencv_storage>

@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31321.278
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Diaplay", "Diaplay.csproj", "{6E2D98BE-7FD7-46E0-9AD5-CB9FEAF0CE26}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6E2D98BE-7FD7-46E0-9AD5-CB9FEAF0CE26}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6E2D98BE-7FD7-46E0-9AD5-CB9FEAF0CE26}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6E2D98BE-7FD7-46E0-9AD5-CB9FEAF0CE26}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6E2D98BE-7FD7-46E0-9AD5-CB9FEAF0CE26}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {A3BB1620-F84C-4C37-BD83-2E3A12F5BCCA}
+	EndGlobalSection
+EndGlobal
