@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "EditRegionTauri",
+  "version": "26.11.25+13",
+  "identifier": "com.editregion.tauri",
+  "build": {
+    "frontendDist": "./assets"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "EditRegionTauri",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/icon.ico"
+    ]
+  }
+}

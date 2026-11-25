@@ -1,0 +1,15 @@
+[package]
+name = "edit-region-tauri"
+version = "26.11.25+13"
+description = "EditRegion ROI editor"
+edition = "2021"
+
+[[bin]]
+name = "EditRegionTauri"
+path = "src/main.rs"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
