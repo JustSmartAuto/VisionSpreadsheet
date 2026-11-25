@@ -365,7 +365,7 @@
   </div>
 
   <div id="stage">
-    <div id="hint">滚轮：以光标为锚点缩放 · 拖拽空白：平移 · 拖边中点：弯曲 · 拖底部 ↻：旋转 · 双击区域 / F2：属性页</div>
+    <div id="hint">滚轮：以光标为锚点缩放 · 拖拽空白：平移 · 拖右侧中点：弯曲 · 拖底部 ↻：旋转 · 双击区域 / F2：属性页</div>
     <input type="file" id="fileJson" accept=".json,application/json" class="hidden">
   </div>
 
@@ -583,105 +583,75 @@ function bootEditor(cvEl){
     const dx = ix - r.x, dy = iy - r.y;
     return { x: dx*c + dy*s, y: -dx*s + dy*c };
   }
+  // ---------- 弯曲矩形：中心线为圆弧，上下边同心，左右端边保持直线 ----------
+  const BEND_EPS = 1e-6;
+  function bendAngle(r){
+    return Number.isFinite(r.bR) ? r.bR : 0; // 中心线总圆心角（弧度）
+  }
+  function hasBend(r){ return Math.abs(bendAngle(r)) >= BEND_EPS; }
+  function maxBendAngle(r){
+    // 保持内圈半径大于 1px，避免两条圆弧边交叉
+    return Math.min(2*Math.PI, r.w/(r.h/2 + 1));
+  }
+  // u 为中心线弧长坐标 [-w/2,w/2]，v 为法向厚度坐标 [-h/2,h/2]
+  function curvedPointImage(r, u, v){
+    const b = bendAngle(r);
+    if (Math.abs(b) < BEND_EPS) return localToImage(r, u, v);
+    const R = r.w/b, phi = u/R, rho = R-v;
+    return localToImage(r, rho*Math.sin(phi), R-rho*Math.cos(phi));
+  }
   function cornersImage(r){
     const hw = r.w/2, hh = r.h/2;
     return [
-      localToImage(r, -hw,-hh), localToImage(r,  hw,-hh),
-      localToImage(r,  hw, hh), localToImage(r, -hw, hh)
+      curvedPointImage(r, -hw,-hh), curvedPointImage(r, hw,-hh),
+      curvedPointImage(r,  hw, hh), curvedPointImage(r, -hw, hh)
     ];
   }
   function cornersCanvas(r){
     return cornersImage(r).map(p => imageToCanvas(p.x, p.y));
   }
   const HANDLES = [
-    {id:"nw", lx:-1, ly:-1}, {id:"n", lx:0, ly:-1}, {id:"ne", lx:1, ly:-1},
-    {id:"e",  lx:1, ly:0},                          {id:"se", lx:1, ly:1},
-    {id:"s",  lx:0, ly:1},  {id:"sw", lx:-1, ly:1}, {id:"w", lx:-1, ly:0}
+    {id:"nw", u:-1, v:-1}, {id:"ne", u:1, v:-1},
+    {id:"e",  u:1,  v:0},
+    {id:"se", u:1,  v:1},  {id:"sw", u:-1, v:1}
   ];
 
-  // ---------- 弯曲：四条边中点可推拉成圆弧（法向挠度，图像 px，外正内负） ----------
   // 边序号 0=上(nw→ne) 1=右(ne→se) 2=下(se→sw) 3=左(sw→nw)
-  const EDGE_KEYS = ["bT", "bR", "bB", "bL"];
-  const EDGE_NORMALS = [{x:0,y:-1},{x:1,y:0},{x:0,y:1},{x:-1,y:0}]; // 本地坐标外法线
-  const EDGE_OF_HANDLE = { n:0, e:1, s:2, w:3 };
-
-  function edgeBend(r, e){
-    const v = r[EDGE_KEYS[e]];
-    return Number.isFinite(v) ? v : 0;
-  }
-  function setEdgeBend(r, e, v){ r[EDGE_KEYS[e]] = v; }
-  function hasBend(r){
-    return EDGE_KEYS.some(k => Math.abs(Number(r[k]) || 0) >= 0.5);
-  }
-  // 边中点的本地坐标：外法线 × 该方向的半边长（上下边沿高度，左右边沿宽度）
-  function edgeMidLocal(r, e){
-    const n = EDGE_NORMALS[e];
-    const half = (e % 2 === 0) ? r.h/2 : r.w/2;
-    return { x: n.x*half, y: n.y*half };
-  }
-  // 边为圆弧：过两端角点与该边弧顶（中点沿外法线偏移挠度），挠度即矢高
-  function edgeArcImage(r, e){
-    const b = edgeBend(r, e);
-    const cs = cornersImage(r);
-    const A = cs[e], B = cs[(e+1)%4];
-    const nrm = EDGE_NORMALS[e];
-    const a = deg2rad(r.angle), ca = Math.cos(a), sa = Math.sin(a);
-    const nx = nrm.x*ca - nrm.y*sa;        // 图像坐标下的外法线
-    const ny = nrm.x*sa + nrm.y*ca;
-    const mx = (A.x + B.x)/2, my = (A.y + B.y)/2;
-    const M = { x: mx + nx*b, y: my + ny*b };            // 弧顶
-    const L = Math.hypot(B.x - A.x, B.y - A.y);          // 弦长
-    const c = (b*b - L*L/4) / (2*b);                     // 圆心沿法线的偏移（挠度超过半弦长时变号=大圆弧）
-    const cx = mx + nx*c, cy = my + ny*c;
-    const R = Math.hypot(A.x - cx, A.y - cy);
-    const aA = Math.atan2(A.y - cy, A.x - cx);
-    const aB = Math.atan2(B.y - cy, B.x - cx);
-    const aM = Math.atan2(M.y - cy, M.x - cx);
-    const wrap = v => { while (v <= -Math.PI) v += 2*Math.PI; while (v > Math.PI) v -= 2*Math.PI; return v; };
-    let sweep = wrap(aB - aA);
-    // 弧顶不在 A→B 短弧上时改走长弧
-    if (Math.sign(wrap(aM - aA)) !== Math.sign(sweep)) sweep -= Math.sign(sweep) * 2*Math.PI;
-    return { A, B, M, cx, cy, R, aA, sweep };
-  }
-  // 弧上一点（图像坐标）；挠度不足 0.5px 时退化为直线
   function edgePointImage(r, e, t){
-    const cs = cornersImage(r);
-    const A = cs[e], B = cs[(e+1)%4];
-    if (Math.abs(edgeBend(r, e)) < 0.5){
-      return { x: A.x + (B.x-A.x)*t, y: A.y + (B.y-A.y)*t };
-    }
-    const arc = edgeArcImage(r, e);
-    const ang = arc.aA + arc.sweep*t;
-    return { x: arc.cx + arc.R*Math.cos(ang), y: arc.cy + arc.R*Math.sin(ang) };
+    const hw = r.w/2, hh = r.h/2;
+    if (e === 0) return curvedPointImage(r, -hw + r.w*t, -hh);
+    if (e === 1) return curvedPointImage(r, hw, -hh + r.h*t);
+    if (e === 2) return curvedPointImage(r, hw - r.w*t, hh);
+    return curvedPointImage(r, -hw, hh - r.h*t);
+  }
+  function edgeArcRadius(r, e){
+    return Math.abs(r.w/bendAngle(r) + (e === 0 ? r.h/2 : -r.h/2));
   }
 
-  // 8 个手柄：四角=缩放；四边中点=弯曲（位置随挠度落在弧顶）
+  // 5 个手柄：四角=缩放；仅右侧中点=整体弯曲
   function handlePointsCanvas(r){
     return HANDLES.map(h => {
-      const e = EDGE_OF_HANDLE[h.id];
-      let p;
-      if (e !== undefined){
-        const b = edgeBend(r, e), m = edgeMidLocal(r, e), nrm = EDGE_NORMALS[e];
-        p = localToImage(r, m.x + nrm.x*b, m.y + nrm.y*b);
-      } else {
-        p = localToImage(r, h.lx*r.w/2, h.ly*r.h/2);
-      }
+      const p = curvedPointImage(r, h.u*r.w/2, h.v*r.h/2);
       const q = imageToCanvas(p.x, p.y);
-      return { id:h.id, x:q.x, y:q.y, bendEdge:e };
+      return { id:h.id, x:q.x, y:q.y, bendEdge:h.id === "e" ? 1 : undefined };
     });
   }
 
   // 旋转柄：底边中点外侧固定 26 画布像素处（与弯曲柄分开，避免争用）
   function rotateHandleCanvas(r){
-    const e = 2, b = edgeBend(r, e), m = edgeMidLocal(r, e), nrm = EDGE_NORMALS[e];
-    const p = localToImage(r, m.x + nrm.x*b, m.y + nrm.y*b);
+    const p = curvedPointImage(r, 0, r.h/2);
     const q = imageToCanvas(p.x, p.y);
     const a = deg2rad(r.angle);
     return { x: q.x - Math.sin(a)*26, y: q.y + Math.cos(a)*26 };
   }
   function pointInRegion(r, ix, iy){
     const p = imageToLocal(r, ix, iy);
-    return Math.abs(p.x) <= r.w/2 && Math.abs(p.y) <= r.h/2;
+    const b = bendAngle(r);
+    if (Math.abs(b) < BEND_EPS) return Math.abs(p.x) <= r.w/2 && Math.abs(p.y) <= r.h/2;
+    const R = r.w/b, sign = Math.sign(R);
+    const phi = Math.atan2(sign*p.x, sign*(R-p.y));
+    const u = R*phi, v = R-sign*Math.hypot(p.x, p.y-R);
+    return Math.abs(u) <= r.w/2 && Math.abs(v) <= r.h/2;
   }
 
   // ---------- 绘制 ----------
@@ -740,18 +710,15 @@ function bootEditor(cvEl){
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let e = 0; e < 4; e++){
-      const B = pts[(e+1) % 4];
-      if (Math.abs(edgeBend(r, e)) >= 0.5){
-        // 圆弧边：按弧长自适应细分后连成折线（保持圆环弧的等曲率外观）
-        const arc = edgeArcImage(r, e);
-        const n = Math.max(16, Math.min(192, Math.ceil(Math.abs(arc.sweep) * arc.R / 2)));
-        for (let k = 1; k <= n; k++){
-          const ang = arc.aA + arc.sweep * k / n;
-          const q = imageToCanvas(arc.cx + arc.R*Math.cos(ang), arc.cy + arc.R*Math.sin(ang));
-          ctx.lineTo(q.x, q.y);
-        }
-      } else {
-        ctx.lineTo(B.x, B.y);
+      // 上、下长边为同心圆弧；左、右端边始终为直线
+      const curved = (e === 0 || e === 2) && hasBend(r);
+      const n = curved
+        ? Math.max(16, Math.min(192, Math.ceil(Math.abs(bendAngle(r)) * edgeArcRadius(r, e) / 2)))
+        : 1;
+      for (let k = 1; k <= n; k++){
+        const p = edgePointImage(r, e, k/n);
+        const q = imageToCanvas(p.x, p.y);
+        ctx.lineTo(q.x, q.y);
       }
     }
     ctx.closePath();
@@ -772,7 +739,7 @@ function bootEditor(cvEl){
 
     if (!isSel) { ctx.restore(); return; }
 
-    // 句柄：品红细框 + 白色内芯（四角缩放，四边中点弯曲）；位置随弯曲落在弧顶
+    // 句柄：品红细框 + 白色内芯（四角缩放，仅右侧中点控制整体弯曲）
     handlePointsCanvas(r).forEach(h => {
       const s = 4;
       ctx.fillStyle = "#ffffff";
@@ -785,18 +752,17 @@ function bootEditor(cvEl){
     // 旋转柄：底边中点外侧的圆形 ↻（连线提示其归属），按住拖动可旋转区域
     if (state.allowRotate){
       const rh = rotateHandleCanvas(r);
-      const base = handlePointsCanvas(r).find(h => h.id === "s");
-      if (base){
-        ctx.save();
-        ctx.strokeStyle = "rgba(255,0,255,.5)";
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(rh.x, rh.y); ctx.stroke();
-        ctx.restore();
-      }
+      const basePoint = curvedPointImage(r, 0, r.h/2);
+      const base = imageToCanvas(basePoint.x, basePoint.y);
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,0,255,.5)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(rh.x, rh.y); ctx.stroke();
+      ctx.restore();
       drawRotateHandle(rh);
     }
 
-    // 坐标轴：绘制在句柄之上（截图里 x/y 箭头遮住了 n/w 句柄），方向跟随 ROI 旋转角
+    // 坐标轴：绘制在句柄之上，方向跟随 ROI 旋转角
     if (state.showAxes){
       const o = pts[0];                 // 左上角（本地坐标 -w/2,-h/2）
       const len = 78;
@@ -932,15 +898,12 @@ function bootEditor(cvEl){
         }
       }
       const handles = handlePointsCanvas(r);
-      // 四边中点：弯曲（按住推拉边中点，该边变为圆弧）
+      // 右侧中点：拖动后整个矩形形成弯曲矩形
       if (state.allowCurve){
         for (const h of handles){
           if (h.bendEdge === undefined) continue;
           if (Math.hypot(h.x-cx, h.y-cy) <= 7){
-            const startImg = canvasToImage(cx, cy);
-            state.drag = { mode:"bend", edge:h.bendEdge,
-                           startBend:edgeBend(r, h.bendEdge),
-                           startLocal:imageToLocal(r, startImg.x, startImg.y) };
+            state.drag = { mode:"bend" };
             return;
           }
         }
@@ -1012,12 +975,10 @@ function bootEditor(cvEl){
           normalizeAngle(r);
         }
       } else if (d.mode === "bend" && r){
-        // 弯曲：把指针位移投影到该边的外法线上，累加到挠度（上限随该边弦长，可拉成大圆弧）
-        const l1 = imageToLocal(r, img.x, img.y);
-        const dx = l1.x - d.startLocal.x, dy = l1.y - d.startLocal.y;
-        const n = EDGE_NORMALS[d.edge];
-        const lim = Math.max(8, (d.edge % 2 === 0) ? r.w : r.h);
-        setEdgeBend(r, d.edge, clamp(d.startBend + dx*n.x + dy*n.y, -0.6*lim, 1.5*lim));
+        // 右侧中点相对 ROI 中心的方向决定圆心角；上下边同步弯曲，左右端边保持直线
+        const p = imageToLocal(r, img.x, img.y);
+        const lim = maxBendAngle(r);
+        r.bR = clamp(4*Math.atan2(p.y, p.x), -lim, lim);
       } else if (d.mode === "resize" && r){
         resizeByHandle(d, img);
       }
@@ -1199,7 +1160,7 @@ function bootEditor(cvEl){
     const c = canvasToImage(v.cw/2, v.ch/2);
     state.regions.push({ name:`EditRegion${state.regions.length+1}`,
       x: c.x, y: c.y, w: 120, h: 120, angle: 0,
-      bT: 0, bR: 0, bB: 0, bL: 0 });
+      bR: 0 });
     state.selected = state.regions.length - 1;
     syncToolbar(); draw();
   }
@@ -1306,7 +1267,7 @@ function bootEditor(cvEl){
       return {
         name, x: cu*ca - cv*sa, y: cu*sa + cv*ca,
         w: Math.max(1, maxU - minU), h: Math.max(1, maxV - minV), angle: deg,
-        bT: 0, bR: 0, bB: 0, bL: 0
+        bR: 0
       };
     }
 
@@ -1419,19 +1380,18 @@ function bootEditor(cvEl){
   const POLY_MAX = 512;
 
   function polyEdgeCounts(r){
-    const counts = [1, 1, 1, 1];        // 直边只输出一个角点
-    for (let e = 0; e < 4; e++){
-      const b = Math.abs(edgeBend(r, e));
-      if (b < 0.5) continue;
-      const arc = edgeArcImage(r, e);
-      const R = Math.max(arc.R, POLY_TOL);
-      const stepAng = 2 * Math.acos(clamp(1 - POLY_TOL / R, -1, 1)); // 单段允许的最大圆心角
-      const full = Math.max(2, Math.ceil(Math.abs(arc.sweep) / Math.max(stepAng, 1e-6)));
-      counts[e] = Math.max(2, Math.round(full * POLY_RATIO));
+    const counts = [1, 1, 1, 1];        // 左、右直端边只输出一个角点
+    if (hasBend(r)){
+      for (const e of [0, 2]){
+        const R = Math.max(edgeArcRadius(r, e), POLY_TOL);
+        const stepAng = 2 * Math.acos(clamp(1 - POLY_TOL / R, -1, 1)); // 单段允许的最大圆心角
+        const full = Math.max(2, Math.ceil(Math.abs(bendAngle(r)) / Math.max(stepAng, 1e-6)));
+        counts[e] = Math.max(2, Math.round(full * POLY_RATIO));
+      }
     }
     const total = counts.reduce((a, b) => a + b, 0);
     if (total > POLY_MAX){
-      // 超上限：按比例压缩曲边点数（每条曲边至少 2 点，直边仍只占 1 点）
+      // 超上限：按比例压缩两条曲边点数（每条曲边至少 2 点，直边仍只占 1 点）
       const curved = counts.map((n, i) => ({ i, n })).filter(o => o.n > 1);
       const straight = 4 - curved.length;
       const budget = Math.max(curved.length * 2, POLY_MAX - straight);
